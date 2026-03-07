@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
     QSpinBox,
     QVBoxLayout,
 )
@@ -28,6 +29,10 @@ from txt_process.core.config import (
 class SettingsDialog(QDialog):
     """Dialog for editing LLM and prompt settings."""
 
+    _BUTTON_MIN_HEIGHT = 36
+    _BUTTON_MIN_WIDTH = 130
+    _MODEL_INPUT_MIN_WIDTH = 460
+
     def __init__(self, config: Config, parent=None) -> None:
         super().__init__(parent)
         self.config = config
@@ -37,7 +42,7 @@ class SettingsDialog(QDialog):
     def _setup_ui(self) -> None:
         """Set up the dialog UI."""
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(600)
+        self.setMinimumWidth(760)
         self.setMinimumHeight(500)
 
         layout = QVBoxLayout(self)
@@ -48,16 +53,18 @@ class SettingsDialog(QDialog):
 
         self.edit_base_url = QLineEdit()
         self.edit_base_url.setPlaceholderText("https://api.openai.com/v1")
+        self.edit_base_url.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
         llm_layout.addRow("Base URL:", self.edit_base_url)
 
         self.edit_api_key = QLineEdit()
         self.edit_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.edit_api_key.setPlaceholderText("sk-...")
+        self.edit_api_key.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
         llm_layout.addRow("API Key:", self.edit_api_key)
 
         api_hint = QLabel(
             "For local Ollama, API key can be empty and Base URL should be "
-            "http://localhost:11434/v1"
+            "http://localhost:11434 (port 11434 auto-selects Ollama protocol)"
         )
         api_hint.setWordWrap(True)
         api_hint.setStyleSheet("color: gray; font-size: 11px;")
@@ -68,6 +75,7 @@ class SettingsDialog(QDialog):
 
         self.edit_model = QLineEdit()
         self.edit_model.setPlaceholderText("gpt-4o-mini")
+        self.edit_model.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
         llm_layout.addRow("Model:", self.edit_model)
 
         self.spin_temperature = QDoubleSpinBox()
@@ -105,9 +113,8 @@ class SettingsDialog(QDialog):
         self.edit_prompt.setMinimumHeight(150)
         prompt_layout.addWidget(self.edit_prompt)
 
-        from PySide6.QtWidgets import QPushButton
-
         btn_reset_prompt = QPushButton("Reset to Default")
+        self._style_button(btn_reset_prompt)
         btn_reset_prompt.clicked.connect(self._reset_prompt)
         prompt_layout.addWidget(btn_reset_prompt, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -117,9 +124,21 @@ class SettingsDialog(QDialog):
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
+        for button in button_box.buttons():
+            if (
+                button_box.standardButton(button)
+                == QDialogButtonBox.StandardButton.Cancel
+            ):
+                button.setObjectName("cancelButton")
+            self._style_button(button)
         button_box.accepted.connect(self._on_accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+    def _style_button(self, button: QPushButton) -> None:
+        """Apply consistent larger button sizing."""
+        button.setMinimumHeight(self._BUTTON_MIN_HEIGHT)
+        button.setMinimumWidth(self._BUTTON_MIN_WIDTH)
 
     def _load_values(self) -> None:
         """Load current config values into the UI."""

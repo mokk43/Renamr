@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "txt-process"
+name = "Renamr"
 version = "0.1.0"
 description = "A GUI tool to extract and replace character names in text files using LLM"
 readme = "README.md"
@@ -26,7 +26,7 @@ dev = [
 ]
 
 [project.scripts]
-txt-process = "txt_process.main:main"
+Renamr = "txt_process.main:main"
 
 [tool.ruff]
 line-length = 100

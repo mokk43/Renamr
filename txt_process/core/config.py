@@ -9,7 +9,7 @@ from typing import Any
 
 import platformdirs
 
-APP_NAME = "txt-process"
+APP_NAME = "Renamr"
 CONFIG_FILE = "config.json"
 
 # Default extraction prompt template
@@ -89,7 +89,7 @@ def save_config(config: Config) -> None:
 
 # --- API Key management via keyring (optional) ---
 
-KEYRING_SERVICE = "txt-process"
+KEYRING_SERVICE = "Renamr"
 KEYRING_USERNAME = "api_key"
 
 

@@ -1,16 +1,20 @@
 # Workflow State
 
 ## Status
-`COMPLETE`
+`IN_PROGRESS`
 
 ## Plan
-Build MVP for Txt Character Renamer per AGENTS.md:
-- PySide6 GUI with file selection, name extraction, 2-col editable table, replace/export
-- Strict <16KB UTF-8 chunking with paragraph preservation
-- Serial LLM calls with ≥2s cadence
-- Config persistence via platformdirs + keyring
+BLUEPRINT - Ollama protocol routing:
+- Add endpoint detector for Ollama (`port 11434`) in `txt_process/core/llm_client.py`
+- Introduce dual protocol path:
+  - OpenAI-compatible: existing `chat.completions` call path
+  - Ollama-native: `/api/generate` JSON protocol path
+- Route by settings `base_url`; if Ollama endpoint, use Ollama-native path
+- Reuse endpoint detector in UI API-key gate (`txt_process/ui/main_window.py`)
+- Add tests to prove protocol selection and request payload correctness
 
 ## Log
+- Started Ollama protocol enhancement blueprint
 - Scaffold created: pyproject.toml, README, package structure
 - Core modules: io.py, chunking.py, llm_client.py, name_extract.py, replace.py, config.py
 - UI modules: main_window.py, settings_dialog.py, models.py, workers.py

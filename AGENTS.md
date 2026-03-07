@@ -1,4 +1,4 @@
-# AGENTS.md — Txt Character Renamer
+# AGENTS.md — Renamr
 
 This document defines the **product requirements**, **architecture**, and **coding conventions** for building a Python GUI tool that:
 
@@ -38,13 +38,16 @@ This file is the source of truth for agent work in this repo.
   - Rationale: robust tables (`QTableView` + `QAbstractTableModel`), good cross-platform behavior, stable threading primitives (`QThread`/signals).
 
 ### LLM client
-- Use the official **OpenAI Python SDK** (OpenAI-compatible via `base_url`) **or** plain `httpx` if SDK constraints arise.
+- Use protocol routing:
+  - **OpenAI-compatible endpoints**: official **OpenAI Python SDK** via `chat.completions`.
+  - **Ollama endpoints on port `11434`**: native Ollama `/api/chat` calls via **httpx**.
 - Must support:
   - `base_url`
   - `api_key`
   - `model`
   - `temperature`
   - optional `timeout`, `max_tokens`
+- Must disable model "thinking" where supported (`think: false`) for deterministic JSON extraction behavior.
 
 ### Config & secrets
 - Persist app config as **JSON** in user config directory via `platformdirs`.
@@ -68,12 +71,12 @@ Preferred layout:
   - `ui/` (Qt windows, dialogs, widgets)
   - `core/`
     - `chunking.py` (paragraph split + <16KB chunker)
-    - `llm_client.py` (OpenAI-compatible client wrapper)
+    - `llm_client.py` (protocol-routed OpenAI-compatible/Ollama client wrapper)
     - `name_extract.py` (prompting + parse/normalize/dedupe)
     - `replace.py` (replacement plan + apply replacement)
     - `config.py` (load/save config, keyring integration)
     - `io.py` (read/write text with encoding strategy)
-  - `resources/` (icons, etc. optional)
+  - `resources/` (app icons and optional assets)
 - `tests/` (pytest)
 - `AGENTS.md`
 
@@ -131,6 +134,11 @@ Do not attempt to fit prompt+chunk under the limit unless the model/provider req
 ---
 
 ## LLM extraction specification (critical)
+
+### Endpoint routing contract
+- If `base_url` resolves to port `11434`, route requests to Ollama native `/api/chat`.
+- For all other endpoints, use OpenAI-compatible `chat.completions`.
+- For Ollama port `11434`, API key may be empty.
 
 ### Calling pattern
 - One request per chunk.
@@ -225,6 +233,10 @@ When applying multiple replacements:
 - **LLM cadence**
   - enforce serial calling
   - enforce ≥2 seconds between calls (test via injected clock/sleep abstraction)
+- **Protocol routing**
+  - detect Ollama by endpoint port `11434`
+  - use Ollama native `/api/chat` payload shape for Ollama
+  - use OpenAI-compatible payload for non-Ollama endpoints
 - **Parsing**
   - strict JSON parsing
   - “JSON wrapped in text” extraction
@@ -265,6 +277,7 @@ Do not run `pip install` automatically in agent actions unless explicitly reques
 - Can select and load `.txt` reliably (handles encoding errors gracefully).
 - Splits into ordered chunks, each **strictly <16KB** UTF-8 bytes.
 - Calls OpenAI-compatible model **serially**, one chunk per request, **≥2s** between requests.
+- Auto-routes to Ollama native `/api/chat` when endpoint port is `11434` (API key optional there).
 - Dedupe merges extracted names into a list shown in a **2-column editable** UI.
 - Only edited mappings are replaced; export file name follows `*_processed` rule.
 - LLM settings + prompt persist and auto-load on startup.

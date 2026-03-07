@@ -1,1 +1,1 @@
-"""Test suite for txt-process."""
+"""Test suite for Renamr."""

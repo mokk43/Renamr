@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Slot
@@ -26,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from txt_process.core.config import Config, save_config, get_api_key
 from txt_process.core.io import load_text_file, save_text_file
+from txt_process.core.llm_client import is_ollama_base_url
 from txt_process.core.replace import apply_replacements, build_output_path
 from txt_process.ui.models import NameTableModel
 from txt_process.ui.settings_dialog import SettingsDialog
@@ -37,6 +37,9 @@ if TYPE_CHECKING:
 
 class MainWindow(QMainWindow):
     """Main application window."""
+
+    _BUTTON_MIN_HEIGHT = 36
+    _BUTTON_MIN_WIDTH = 140
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -65,7 +68,7 @@ class MainWindow(QMainWindow):
         file_layout = QHBoxLayout(file_group)
 
         self.btn_select_file = QPushButton("Select File...")
-        self.btn_select_file.setFixedWidth(120)
+        self._style_button(self.btn_select_file, min_width=160)
         file_layout.addWidget(self.btn_select_file)
 
         self.lbl_file_info = QLabel("No file selected")
@@ -79,15 +82,18 @@ class MainWindow(QMainWindow):
 
         self.btn_extract = QPushButton("Extract Names")
         self.btn_extract.setEnabled(False)
+        self._style_button(self.btn_extract)
         btn_layout.addWidget(self.btn_extract)
 
         self.btn_replace = QPushButton("Replace && Export")
         self.btn_replace.setEnabled(False)
+        self._style_button(self.btn_replace)
         btn_layout.addWidget(self.btn_replace)
 
         btn_layout.addStretch()
 
         self.btn_settings = QPushButton("Settings...")
+        self._style_button(self.btn_settings)
         btn_layout.addWidget(self.btn_settings)
 
         layout.addLayout(btn_layout)
@@ -103,7 +109,9 @@ class MainWindow(QMainWindow):
         progress_layout.addStretch()
 
         self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setObjectName("cancelButton")
         self.btn_cancel.setVisible(False)
+        self._style_button(self.btn_cancel, min_width=120)
         progress_layout.addWidget(self.btn_cancel)
 
         layout.addLayout(progress_layout)
@@ -132,6 +140,7 @@ class MainWindow(QMainWindow):
         table_btn_layout = QHBoxLayout()
         self.btn_reset_all = QPushButton("Reset All")
         self.btn_reset_all.setEnabled(False)
+        self._style_button(self.btn_reset_all, min_width=130)
         table_btn_layout.addWidget(self.btn_reset_all)
         table_btn_layout.addStretch()
 
@@ -151,6 +160,17 @@ class MainWindow(QMainWindow):
 
         splitter.setSizes([400, 400])
         layout.addWidget(splitter, 1)
+
+    def _style_button(
+        self,
+        button: QPushButton,
+        *,
+        min_width: int | None = None,
+        min_height: int | None = None,
+    ) -> None:
+        """Apply consistent larger button sizing."""
+        button.setMinimumHeight(min_height or self._BUTTON_MIN_HEIGHT)
+        button.setMinimumWidth(min_width or self._BUTTON_MIN_WIDTH)
 
     def _connect_signals(self) -> None:
         """Connect UI signals to slots."""
@@ -208,13 +228,9 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
                 self._log(f"Error loading file: {e}")
 
-    def _is_local_base_url(self, base_url: str) -> bool:
-        """Check if base URL points to a local Ollama-compatible server."""
-        if not base_url:
-            return False
-        parsed = urlparse(base_url if "://" in base_url else f"http://{base_url}")
-        host = (parsed.hostname or "").lower()
-        return host in {"localhost", "127.0.0.1", "0.0.0.0"}
+    def _is_ollama_endpoint(self, base_url: str) -> bool:
+        """Check if base URL points to an Ollama endpoint."""
+        return is_ollama_base_url(base_url)
 
     @Slot()
     def _on_extract(self) -> None:
@@ -223,7 +239,7 @@ class MainWindow(QMainWindow):
             return
 
         api_key = get_api_key()
-        if not api_key and not self._is_local_base_url(self.config.base_url):
+        if not api_key and not self._is_ollama_endpoint(self.config.base_url):
             QMessageBox.warning(
                 self,
                 "API Key Required",

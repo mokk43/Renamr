@@ -1,4 +1,4 @@
-# Txt Character Renamer
+# Renamr
 
 A Python GUI application that extracts character names from text files using an LLM and allows batch renaming/replacement.
 
@@ -6,6 +6,7 @@ A Python GUI application that extracts character names from text files using an 
 
 - Load `.txt` files with automatic encoding detection
 - Extract character names using OpenAI-compatible LLM APIs
+- Auto-route to Ollama native chat API when endpoint port is `11434`
 - Review and edit name mappings in a two-column table
 - Replace only edited names and export to `*_processed.txt`
 - Persistent LLM and prompt configuration
@@ -21,7 +22,7 @@ A Python GUI application that extracts character names from text files using an 
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd txt-process
+cd Renamr
 
 # Create virtual environment
 python -m venv venv
@@ -35,7 +36,7 @@ pip install -e ".[dev]"
 
 ```bash
 # Run the application
-txt-process
+Renamr
 
 # Or run directly
 python -m txt_process.main
@@ -52,9 +53,9 @@ python -m txt_process.main
 ## Configuration
 
 Settings are stored in your user config directory:
-- macOS: `~/Library/Application Support/txt-process/config.json`
-- Linux: `~/.config/txt-process/config.json`
-- Windows: `%APPDATA%\txt-process\config.json`
+- macOS: `~/Library/Application Support/Renamr/config.json`
+- Linux: `~/.config/Renamr/config.json`
+- Windows: `%APPDATA%\Renamr\config.json`
 
 API keys are stored securely via the system keychain (keyring).
 
@@ -62,9 +63,10 @@ API keys are stored securely via the system keychain (keyring).
 
 1. Make sure Ollama is running locally.
 2. Open Settings:
-   - Base URL: `http://localhost:11434/v1`
+   - Base URL: `http://localhost:11434` (or `http://localhost:11434/v1`)
    - API Key: leave empty
    - Model: your local model name (e.g. `llama3.1`)
+3. When the configured endpoint uses port `11434`, the app automatically uses Ollama's native protocol and calls `/api/chat`.
 
 ## Development
 

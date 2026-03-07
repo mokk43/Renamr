@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from txt_process.core.config import Config
 
 # #region agent log
-_DEBUG_LOG_PATH = "/Users/gary/git/txt-process/.cursor/debug.log"
+_DEBUG_LOG_PATH = "/Users/gary/git/Renamr/.cursor/debug.log"
 def _dbg(loc, msg, data, hyp):
     open(_DEBUG_LOG_PATH, "a").write(json.dumps({"location": loc, "message": msg, "data": data, "hypothesisId": hyp, "timestamp": int(time.time()*1000), "sessionId": "debug-session"}) + "\n")
 # #endregion
