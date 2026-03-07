@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Slot
@@ -49,6 +50,7 @@ class MainWindow(QMainWindow):
         self.current_encoding: str = "utf-8"
         self.worker: ExtractNamesWorker | None = None
         self.worker_thread: QThread | None = None
+        self._extract_started_at: float | None = None
 
         self._setup_ui()
         self._connect_signals()
@@ -238,6 +240,10 @@ class MainWindow(QMainWindow):
         if not self.current_text:
             return
 
+        # Start each extraction click with a clean table.
+        self.name_model.set_names([])
+        self._on_table_changed()
+
         api_key = get_api_key()
         if not api_key and not self._is_ollama_endpoint(self.config.base_url):
             QMessageBox.warning(
@@ -275,6 +281,7 @@ class MainWindow(QMainWindow):
         self.btn_cancel.setVisible(True)
         self.lbl_status.setText("Starting extraction...")
         self._update_button_states()
+        self._extract_started_at = time.monotonic()
         self._log("Starting name extraction...")
 
         self.worker_thread.start()
@@ -300,6 +307,7 @@ class MainWindow(QMainWindow):
         self.btn_cancel.setVisible(False)
         self.lbl_status.setText(f"Extracted {len(names)} unique names")
         self._log(f"Extraction complete: {len(names)} unique names")
+        self._log_extraction_duration()
         self._update_button_states()
         self._on_table_changed()
 
@@ -312,6 +320,7 @@ class MainWindow(QMainWindow):
         self._log(f"Error: {message}")
         if details:
             self._log(f"Details: {details}")
+        self._log_extraction_duration(prefix="Extraction stopped")
         self._update_button_states()
         QMessageBox.critical(self, "Extraction Error", f"{message}\n\n{details}")
 
@@ -406,3 +415,11 @@ class MainWindow(QMainWindow):
         """Update edited count label."""
         count = len(self.name_model.get_edited_mappings())
         self.lbl_edited_count.setText(f"Edited: {count}")
+
+    def _log_extraction_duration(self, prefix: str = "Extraction time cost") -> None:
+        """Log elapsed extraction time if extraction was started."""
+        if self._extract_started_at is None:
+            return
+        elapsed = time.monotonic() - self._extract_started_at
+        self._extract_started_at = None
+        self._log(f"{prefix}: {elapsed:.2f}s")
