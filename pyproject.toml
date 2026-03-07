@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "txt-process"
+version = "0.1.0"
+description = "A GUI tool to extract and replace character names in text files using LLM"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "PySide6>=6.6.0",
+    "openai>=1.0.0",
+    "platformdirs>=4.0.0",
+    "charset-normalizer>=3.0.0",
+    "keyring>=25.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-qt>=4.4.0",
+    "ruff>=0.4.0",
+    "black>=24.0.0",
+]
+
+[project.scripts]
+txt-process = "txt_process.main:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
