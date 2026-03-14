@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from txt_process.core.config import Config, save_config, get_api_key
 from txt_process.core.io import load_text_file, save_text_file
 from txt_process.core.llm_client import is_ollama_base_url
+from txt_process.core.normalize_txt import normalize_text_file
 from txt_process.core.replace import apply_replacements, build_output_path
 from txt_process.ui.models import NameTableModel
 from txt_process.ui.settings_dialog import SettingsDialog
@@ -81,6 +82,11 @@ class MainWindow(QMainWindow):
 
         # --- Action buttons ---
         btn_layout = QHBoxLayout()
+
+        self.btn_normalize = QPushButton("Normalize Layout")
+        self.btn_normalize.setEnabled(False)
+        self._style_button(self.btn_normalize)
+        btn_layout.addWidget(self.btn_normalize)
 
         self.btn_extract = QPushButton("Extract Names")
         self.btn_extract.setEnabled(False)
@@ -178,6 +184,7 @@ class MainWindow(QMainWindow):
         """Connect UI signals to slots."""
         self.btn_select_file.clicked.connect(self._on_select_file)
         self.btn_extract.clicked.connect(self._on_extract)
+        self.btn_normalize.clicked.connect(self._on_normalize)
         self.btn_replace.clicked.connect(self._on_replace)
         self.btn_settings.clicked.connect(self._on_settings)
         self.btn_cancel.clicked.connect(self._on_cancel)
@@ -191,6 +198,7 @@ class MainWindow(QMainWindow):
         is_working = self.worker is not None
 
         self.btn_extract.setEnabled(has_file and not is_working)
+        self.btn_normalize.setEnabled(has_file and not is_working)
         self.btn_replace.setEnabled(has_names and not is_working)
         self.btn_reset_all.setEnabled(has_names and not is_working)
         self.btn_select_file.setEnabled(not is_working)
@@ -211,24 +219,64 @@ class MainWindow(QMainWindow):
         if file_path:
             path = Path(file_path)
             try:
-                text, encoding = load_text_file(path)
-                self.current_file = path
-                self.current_text = text
-                self.current_encoding = encoding
-
-                size_kb = path.stat().st_size / 1024
-                line_count = text.count("\n") + 1
-                self.lbl_file_info.setText(
-                    f"{path.name} | {size_kb:.1f} KB | {line_count} lines | {encoding}"
-                )
+                self._set_active_file(path)
                 self._log(f"Loaded: {path}")
-
-                # Clear previous results
-                self.name_model.set_names([])
-                self._update_button_states()
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
                 self._log(f"Error loading file: {e}")
+
+    def _set_active_file(self, path: Path) -> None:
+        """Load a file and make it the active file for all operations."""
+        text, encoding = load_text_file(path)
+        self.current_file = path
+        self.current_text = text
+        self.current_encoding = encoding
+
+        size_kb = path.stat().st_size / 1024
+        line_count = text.count("\n") + 1
+        self.lbl_file_info.setText(
+            f"{path.name} | {size_kb:.1f} KB | {line_count} lines | {encoding}"
+        )
+
+        # Changing active file invalidates previous extracted names.
+        self.name_model.set_names([])
+        self._on_table_changed()
+        self._update_button_states()
+
+    def _build_normalized_path(self, input_path: Path) -> Path:
+        """Build normalized output path with a _normalized suffix."""
+        return input_path.parent / f"{input_path.stem}_normalized{input_path.suffix}"
+
+    @Slot()
+    def _on_normalize(self) -> None:
+        """Normalize active file layout and switch follow-up operations to that output."""
+        if self.current_file is None:
+            return
+
+        source_path = self.current_file
+        normalized_path = self._build_normalized_path(source_path)
+
+        try:
+            # Ensure output corresponds to this normalization attempt.
+            if normalized_path.exists():
+                normalized_path.unlink()
+
+            normalize_text_file(str(source_path), str(normalized_path))
+
+            if not normalized_path.exists():
+                raise RuntimeError("Normalization did not produce an output file.")
+
+            self._set_active_file(normalized_path)
+            self._log(f"Normalized layout: {source_path} -> {normalized_path}")
+            QMessageBox.information(
+                self,
+                "Normalization Complete",
+                f"Saved normalized file:\n{normalized_path}\n\n"
+                "Extract and export now use this normalized file.",
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Normalization Error", f"Failed to normalize:\n{e}")
+            self._log(f"Normalization error: {e}")
 
     def _is_ollama_endpoint(self, base_url: str) -> bool:
         """Check if base URL points to an Ollama endpoint."""
