@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 # Default maximum chunk size in bytes (strictly less than this)
-DEFAULT_CHUNK_MAX_BYTES = 8 * 1024  # 8KB
+DEFAULT_CHUNK_MAX_BYTES = 16 * 1024  # 16KB
 
 
 def split_into_paragraphs(text: str) -> list[str]:

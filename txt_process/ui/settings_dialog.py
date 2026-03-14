@@ -89,6 +89,12 @@ class SettingsDialog(QDialog):
         self.spin_timeout.setSuffix(" seconds")
         llm_layout.addRow("Timeout:", self.spin_timeout)
 
+        self.spin_max_tokens = QSpinBox()
+        self.spin_max_tokens.setRange(0, 4096)
+        self.spin_max_tokens.setSingleStep(32)
+        self.spin_max_tokens.setSpecialValueText("Auto")
+        llm_layout.addRow("Max output tokens:", self.spin_max_tokens)
+
         self.spin_chunk_bytes = QSpinBox()
         self.spin_chunk_bytes.setRange(1024, 65536)
         self.spin_chunk_bytes.setSingleStep(512)
@@ -146,6 +152,7 @@ class SettingsDialog(QDialog):
         self.edit_model.setText(self.config.model)
         self.spin_temperature.setValue(self.config.temperature)
         self.spin_timeout.setValue(int(self.config.timeout_seconds))
+        self.spin_max_tokens.setValue(int(self.config.max_tokens or 0))
         self.spin_chunk_bytes.setValue(int(self.config.chunk_max_bytes))
         self.edit_prompt.setPlainText(self.config.prompt_template)
         self.chk_remember_key.setChecked(self.config.remember_api_key)
@@ -181,7 +188,11 @@ class SettingsDialog(QDialog):
             model=self.edit_model.text().strip() or self.config.model,
             temperature=self.spin_temperature.value(),
             timeout_seconds=float(self.spin_timeout.value()),
-            max_tokens=self.config.max_tokens,
+            max_tokens=(
+                int(self.spin_max_tokens.value())
+                if int(self.spin_max_tokens.value()) > 0
+                else None
+            ),
             prompt_template=self.edit_prompt.toPlainText() or DEFAULT_PROMPT_TEMPLATE,
             chunk_max_bytes=int(self.spin_chunk_bytes.value()),
             request_interval_seconds=self.config.request_interval_seconds,

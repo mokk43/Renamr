@@ -73,7 +73,7 @@ class ExtractNamesWorker(QObject):
             )
 
             all_names: list[str] = []
-            last_response_time = 0.0
+            last_request_start = 0.0
             interval = self.config.request_interval_seconds
 
             for i, chunk in enumerate(chunks):
@@ -81,12 +81,12 @@ class ExtractNamesWorker(QObject):
                     self.error.emit("Cancelled", "Extraction was cancelled by user.")
                     return
 
-                # Enforce minimum interval between requests (after previous response)
-                elapsed = time.monotonic() - last_response_time
-                if last_response_time > 0 and elapsed < interval:
+                # Enforce minimum interval between request starts.
+                elapsed = time.monotonic() - last_request_start
+                if last_request_start > 0 and elapsed < interval:
                     wait_time = interval - elapsed
                     self.progress.emit(i, total_chunks, f"Waiting {wait_time:.1f}s...")
-                    
+
                     # Check for cancellation during wait
                     wait_start = time.monotonic()
                     while time.monotonic() - wait_start < wait_time:
@@ -107,6 +107,7 @@ class ExtractNamesWorker(QObject):
                 # #endregion
 
                 try:
+                    last_request_start = time.monotonic()
                     response = client.chat(prompt)
                     # #region agent log
                     _dbg("workers.py:llm_response", "LLM responded", {"response_len": len(response) if response else 0, "response_preview": response[:200] if response else "NONE"}, "H3")
@@ -128,28 +129,8 @@ class ExtractNamesWorker(QObject):
                         self.error.emit(message, details)
                         return
 
-                    # Try one corrective retry
-                    self.progress.emit(i, total_chunks, "Retrying with correction...")
-                    time.sleep(interval)
-                    try:
-                        corrective_prompt = (
-                            f"Your previous response was not valid JSON. "
-                            f"Please output ONLY a JSON object in this format: "
-                            f'{{\"names\": [\"Name1\", \"Name2\"]}}\n\n'
-                            f"Original request:\n{prompt}"
-                        )
-                        response = client.chat(corrective_prompt)
-                        names = extract_names_from_response(response)
-                        all_names.extend(names)
-                        self.chunk_names.emit(i, names)
-                    except Exception as retry_error:
-                        # Log but continue with other chunks
-                        self.progress.emit(
-                            i, total_chunks, f"Chunk {i+1} failed, continuing..."
-                        )
-                finally:
-                    # Mark that the previous request has returned (success or error)
-                    last_response_time = time.monotonic()
+                    # No retry path: continue with remaining chunks.
+                    self.progress.emit(i, total_chunks, f"Chunk {i+1} failed, continuing...")
 
                 self.progress.emit(i + 1, total_chunks, "Processing...")
 

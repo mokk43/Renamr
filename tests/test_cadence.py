@@ -94,7 +94,8 @@ class TestLLMClientMocking:
             response = client.chat("Extract names from: ...")
 
             # Verify response
-            names = extract_names_from_response(response)
+            with patch("txt_process.core.name_extract._dbg", lambda *args, **kwargs: None):
+                names = extract_names_from_response(response)
             assert names == ["张三", "李四"]
 
     def test_mock_llm_empty_response(self):
@@ -141,18 +142,40 @@ class TestLLMClientMocking:
             assert response == ""
 
 
-class TestCorrectiveRetry:
-    """Tests for corrective retry behavior."""
+class TestNoRetryBehavior:
+    """Tests that extraction errors do not trigger retry calls."""
 
-    def test_corrective_prompt_format(self):
-        """Verify corrective prompt includes instruction for JSON-only output."""
-        # The corrective prompt should instruct the model to output only JSON
-        corrective_template = (
-            "Your previous response was not valid JSON. "
-            "Please output ONLY a JSON object in this format: "
-            '{"names": ["Name1", "Name2"]}'
+    def test_worker_does_not_retry_after_chunk_failure(self):
+        """A failed chunk should continue without a second model call."""
+        from txt_process.core.config import Config
+        from txt_process.ui.workers import ExtractNamesWorker
+
+        config = Config(
+            base_url="http://localhost:11434",
+            model="qwen3.5:0.8b",
+            prompt_template="{chunk_text}",
+            request_interval_seconds=0.0,
         )
 
-        assert "JSON" in corrective_template
-        assert "names" in corrective_template
-        assert "ONLY" in corrective_template
+        worker = ExtractNamesWorker(text="hello world", config=config, api_key="ollama")
+        progress_events: list[tuple[int, int, str]] = []
+        finished_payload: list[list[str]] = []
+        worker.progress.connect(lambda c, t, s: progress_events.append((c, t, s)))
+        worker.finished.connect(lambda names: finished_payload.append(names))
+
+        with patch("txt_process.ui.workers.split_into_chunks", return_value=["chunk-1"]):
+            with patch("txt_process.ui.workers.LLMClient") as mock_llm:
+                with patch("txt_process.ui.workers._dbg", lambda *args, **kwargs: None):
+                    mock_llm.return_value.chat.side_effect = RuntimeError("simulated failure")
+                    worker.run()
+
+        assert mock_llm.return_value.chat.call_count == 1
+        assert any(
+            status == "Chunk 1 failed, continuing..."
+            for _, _, status in progress_events
+        )
+        assert all(
+            status != "Retrying with correction..."
+            for _, _, status in progress_events
+        )
+        assert finished_payload == [[]]
