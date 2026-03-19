@@ -13,6 +13,7 @@ class NameRow:
 
     original: str
     replacement: str = ""
+    occurrence_count: int = 0
 
     @property
     def is_edited(self) -> bool:
@@ -23,7 +24,7 @@ class NameRow:
 class NameTableModel(QAbstractTableModel):
     """Model for the two-column name mapping table."""
 
-    HEADERS = ["Original Name", "Replacement Name"]
+    HEADERS = ["Original Name (Count)", "Replacement Name"]
 
     def __init__(self) -> None:
         super().__init__()
@@ -47,7 +48,7 @@ class NameTableModel(QAbstractTableModel):
 
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             if col == 0:
-                return row.original
+                return f"{row.original} ({row.occurrence_count})"
             else:
                 return row.replacement
 
@@ -87,10 +88,16 @@ class NameTableModel(QAbstractTableModel):
                 return self.HEADERS[section]
         return None
 
-    def set_names(self, names: list[str]) -> None:
-        """Set the list of original names, clearing any previous data."""
+    def set_names(self, names: list[str], counts: dict[str, int] | None = None) -> None:
+        """Set names and optional occurrence counts, sorting by count desc."""
+        counts = counts or {}
+        ordered_names = sorted(names, key=lambda name: (-counts.get(name, 0), name))
+
         self.beginResetModel()
-        self._rows = [NameRow(original=name) for name in names]
+        self._rows = [
+            NameRow(original=name, occurrence_count=counts.get(name, 0))
+            for name in ordered_names
+        ]
         self.endResetModel()
 
     def get_edited_mappings(self) -> dict[str, str]:

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from txt_process.core.config import Config, save_config, get_api_key
+from txt_process.core.config import Config, save_config
 from txt_process.core.io import load_text_file, save_text_file
 from txt_process.core.llm_client import is_ollama_base_url
 from txt_process.core.normalize_txt import normalize_text_file
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         self.current_file: Path | None = None
         self.current_text: str = ""
         self.current_encoding: str = "utf-8"
+        self._session_api_key: str | None = None
         self.worker: ExtractNamesWorker | None = None
         self.worker_thread: QThread | None = None
         self._extract_started_at: float | None = None
@@ -292,7 +293,7 @@ class MainWindow(QMainWindow):
         self.name_model.set_names([])
         self._on_table_changed()
 
-        api_key = get_api_key()
+        api_key = self._session_api_key or self.config.api_key
         if not api_key and not self._is_ollama_endpoint(self.config.base_url):
             QMessageBox.warning(
                 self,
@@ -318,6 +319,7 @@ class MainWindow(QMainWindow):
         self.worker_thread.started.connect(self.worker.run)
         self.worker.progress.connect(self._on_extraction_progress)
         self.worker.chunk_names.connect(self._on_chunk_names)
+        self.worker.chunk_error.connect(self._on_chunk_error)
         self.worker.finished.connect(self._on_extraction_finished)
         self.worker.error.connect(self._on_extraction_error)
         self.worker.finished.connect(self._cleanup_worker)
@@ -347,14 +349,24 @@ class MainWindow(QMainWindow):
         if names:
             self._log(f"Chunk {chunk_idx + 1}: found {len(names)} names")
 
-    @Slot(list)
-    def _on_extraction_finished(self, names: list[str]) -> None:
+    @Slot(int, str)
+    def _on_chunk_error(self, chunk_idx: int, error_msg: str) -> None:
+        """Log per-chunk extraction errors so the user sees what went wrong."""
+        self._log(f"Chunk {chunk_idx + 1} error: {error_msg}")
+
+    @Slot(list, dict)
+    def _on_extraction_finished(self, names: list[str], counts: dict[str, int]) -> None:
         """Handle extraction completion."""
-        self.name_model.set_names(names)
+        self.name_model.set_names(names, counts)
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
-        self.lbl_status.setText(f"Extracted {len(names)} unique names")
-        self._log(f"Extraction complete: {len(names)} unique names")
+        total_mentions = sum(counts.values())
+        self.lbl_status.setText(
+            f"Extracted {len(names)} unique names, {total_mentions} total occurrences"
+        )
+        self._log(
+            f"Extraction complete: {len(names)} unique names, {total_mentions} total occurrences"
+        )
         self._log_extraction_duration()
         self._update_button_states()
         self._on_table_changed()
@@ -446,10 +458,17 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_settings(self) -> None:
         """Open settings dialog."""
-        dialog = SettingsDialog(self.config, self)
+        dialog = SettingsDialog(
+            self.config, self, session_api_key=self._session_api_key or ""
+        )
         if dialog.exec():
             self.config = dialog.get_config()
             save_config(self.config)
+            entered = dialog.get_api_key_entered()
+            if entered:
+                self._session_api_key = entered
+            else:
+                self._session_api_key = None
             self._log("Settings saved")
 
     @Slot()

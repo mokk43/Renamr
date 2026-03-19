@@ -5,12 +5,6 @@ from __future__ import annotations
 import json
 import re
 
-# #region agent log
-_DEBUG_LOG_PATH = "/Users/gary/git/Renamr/.cursor/debug.log"
-def _dbg(loc, msg, data, hyp):
-    import time; open(_DEBUG_LOG_PATH, "a").write(json.dumps({"location": loc, "message": msg, "data": data, "hypothesisId": hyp, "timestamp": int(time.time()*1000), "sessionId": "debug-session"}) + "\n")
-# #endregion
-
 
 def extract_names_from_response(response: str) -> list[str]:
     """
@@ -29,9 +23,6 @@ def extract_names_from_response(response: str) -> list[str]:
         ValueError: If no valid names can be extracted.
     """
     response = response.strip()
-    # #region agent log
-    _dbg("name_extract.py:entry", "extract_names_from_response called", {"response_len": len(response), "response_preview": response[:300] if response else "EMPTY"}, "H1")
-    # #endregion
 
     if not response:
         return []
@@ -39,17 +30,11 @@ def extract_names_from_response(response: str) -> list[str]:
     # Try strict JSON parsing first
     try:
         data = json.loads(response)
-        # #region agent log
-        _dbg("name_extract.py:json_ok", "strict JSON parsed", {"data_type": str(type(data)), "has_names": "names" in data if isinstance(data, dict) else False}, "H2")
-        # #endregion
         if isinstance(data, dict) and "names" in data:
             names = data["names"]
             if isinstance(names, list):
                 return [str(n) for n in names if n]
-    except json.JSONDecodeError as e:
-        # #region agent log
-        _dbg("name_extract.py:json_fail", "strict JSON failed", {"error": str(e)}, "H1")
-        # #endregion
+    except json.JSONDecodeError:
         pass
 
     # Try to find JSON object in the response
@@ -100,9 +85,6 @@ def extract_names_from_response(response: str) -> list[str]:
     if potential_names:
         return potential_names
 
-    # #region agent log
-    _dbg("name_extract.py:all_failed", "all parsing methods failed", {"response_preview": response[:200]}, "H1")
-    # #endregion
     raise ValueError(f"Could not extract names from response: {response[:200]}")
 
 
@@ -150,3 +132,22 @@ def dedupe_names(names: list[str]) -> list[str]:
         result.append(normalized)
 
     return result
+
+
+def count_name_occurrences(text: str, names: list[str]) -> dict[str, int]:
+    """
+    Count occurrences for each extracted name in source text.
+
+    Names are normalized and deduplicated first to keep one entry per name.
+
+    Args:
+        text: Original source text.
+        names: Extracted names (may include duplicates and whitespace).
+
+    Returns:
+        Mapping of normalized name -> number of exact substring occurrences.
+    """
+    counts: dict[str, int] = {}
+    for name in dedupe_names(names):
+        counts[name] = text.count(name)
+    return counts

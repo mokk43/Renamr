@@ -18,12 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from txt_process.core.config import (
-    Config,
-    DEFAULT_PROMPT_TEMPLATE,
-    get_api_key,
-    save_api_key,
-)
+from txt_process.core.config import Config, DEFAULT_PROMPT_TEMPLATE
 
 
 class SettingsDialog(QDialog):
@@ -33,9 +28,10 @@ class SettingsDialog(QDialog):
     _BUTTON_MIN_WIDTH = 130
     _MODEL_INPUT_MIN_WIDTH = 460
 
-    def __init__(self, config: Config, parent=None) -> None:
+    def __init__(self, config: Config, parent=None, session_api_key: str = "") -> None:
         super().__init__(parent)
         self.config = config
+        self._session_api_key_hint = session_api_key
         self._setup_ui()
         self._load_values()
 
@@ -70,7 +66,7 @@ class SettingsDialog(QDialog):
         api_hint.setStyleSheet("color: gray; font-size: 11px;")
         llm_layout.addRow("", api_hint)
 
-        self.chk_remember_key = QCheckBox("Remember API key (stored in system keychain)")
+        self.chk_remember_key = QCheckBox("Remember API key (saved in config file)")
         llm_layout.addRow("", self.chk_remember_key)
 
         self.edit_model = QLineEdit()
@@ -85,7 +81,7 @@ class SettingsDialog(QDialog):
         llm_layout.addRow("Temperature:", self.spin_temperature)
 
         self.spin_timeout = QSpinBox()
-        self.spin_timeout.setRange(10, 300)
+        self.spin_timeout.setRange(10, 600)
         self.spin_timeout.setSuffix(" seconds")
         llm_layout.addRow("Timeout:", self.spin_timeout)
 
@@ -157,8 +153,7 @@ class SettingsDialog(QDialog):
         self.edit_prompt.setPlainText(self.config.prompt_template)
         self.chk_remember_key.setChecked(self.config.remember_api_key)
 
-        # Load API key from keyring if available
-        api_key = get_api_key()
+        api_key = self.config.api_key or self._session_api_key_hint
         if api_key:
             self.edit_api_key.setText(api_key)
 
@@ -168,21 +163,16 @@ class SettingsDialog(QDialog):
 
     def _on_accept(self) -> None:
         """Handle OK button."""
-        # Save API key if remember is checked
-        api_key = self.edit_api_key.text().strip()
-        remember = self.chk_remember_key.isChecked()
-
-        if remember and api_key:
-            save_api_key(api_key)
-        elif not remember:
-            # Still save the key for current session if provided
-            if api_key:
-                save_api_key(api_key)
-
         self.accept()
+
+    def get_api_key_entered(self) -> str:
+        """Return the API key as entered in the dialog (for session use)."""
+        return self.edit_api_key.text().strip()
 
     def get_config(self) -> Config:
         """Get the updated config from the dialog values."""
+        remember = self.chk_remember_key.isChecked()
+        api_key = self.edit_api_key.text().strip() if remember else ""
         return Config(
             base_url=self.edit_base_url.text().strip() or self.config.base_url,
             model=self.edit_model.text().strip() or self.config.model,
@@ -196,5 +186,6 @@ class SettingsDialog(QDialog):
             prompt_template=self.edit_prompt.toPlainText() or DEFAULT_PROMPT_TEMPLATE,
             chunk_max_bytes=int(self.spin_chunk_bytes.value()),
             request_interval_seconds=self.config.request_interval_seconds,
-            remember_api_key=self.chk_remember_key.isChecked(),
+            remember_api_key=remember,
+            api_key=api_key,
         )

@@ -41,6 +41,7 @@ class Config:
     chunk_max_bytes: int = 16384
     request_interval_seconds: float = 2.0
     remember_api_key: bool = False
+    api_key: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for JSON serialization."""
@@ -87,39 +88,3 @@ def save_config(config: Config) -> None:
         json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
 
 
-# --- API Key management via keyring (optional) ---
-
-KEYRING_SERVICE = "Renamr"
-KEYRING_USERNAME = "api_key"
-
-
-def get_api_key() -> str | None:
-    """Retrieve API key from system keychain."""
-    try:
-        import keyring
-
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_USERNAME)
-    except Exception:
-        return None
-
-
-def save_api_key(api_key: str) -> bool:
-    """Store API key in system keychain. Returns True on success."""
-    try:
-        import keyring
-
-        keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key)
-        return True
-    except Exception:
-        return False
-
-
-def delete_api_key() -> bool:
-    """Remove API key from system keychain. Returns True on success."""
-    try:
-        import keyring
-
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
-        return True
-    except Exception:
-        return False

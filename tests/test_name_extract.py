@@ -3,6 +3,7 @@
 import pytest
 
 from txt_process.core.name_extract import (
+    count_name_occurrences,
     extract_names_from_response,
     normalize_name,
     dedupe_names,
@@ -172,3 +173,33 @@ class TestDedupeNames:
         names = ["张三", "Alice", "张三", "Bob", "Alice"]
         result = dedupe_names(names)
         assert result == ["张三", "Alice", "Bob"]
+
+
+class TestCountNameOccurrences:
+    """Tests for extracted-name occurrence counting in source text."""
+
+    def test_count_occurrences_for_each_name(self):
+        """Count each extracted name in the original text."""
+        text = "Alice met Bob. Alice waved at Bob. Carol watched."
+        names = ["Alice", "Bob", "Carol", "Diana"]
+
+        result = count_name_occurrences(text, names)
+
+        assert result == {
+            "Alice": 2,
+            "Bob": 2,
+            "Carol": 1,
+            "Diana": 0,
+        }
+
+    def test_count_with_normalization_and_dedupe(self):
+        """Normalize and dedupe names before counting."""
+        text = "Alice met Bob. Alice smiled."
+        names = [" Alice ", "Alice", " ", "", "Bob"]
+
+        result = count_name_occurrences(text, names)
+
+        assert result == {
+            "Alice": 2,
+            "Bob": 1,
+        }
