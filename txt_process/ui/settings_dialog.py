@@ -97,6 +97,35 @@ class SettingsDialog(QDialog):
         self.spin_chunk_bytes.setSuffix(" bytes")
         llm_layout.addRow("Chunk max bytes:", self.spin_chunk_bytes)
 
+        self.spin_begin_scan = QSpinBox()
+        self.spin_begin_scan.setRange(5, 500)
+        self.spin_begin_scan.setSingleStep(5)
+        self.spin_begin_scan.setSuffix(" chunks")
+        self.spin_begin_scan.setToolTip(
+            "When total chunks exceed this value, switch to sampled extraction "
+            "(all first N chunks are fully scanned, then only every Kth chunk)."
+        )
+        llm_layout.addRow("Full-scan threshold:", self.spin_begin_scan)
+
+        self.spin_scan_interval = QSpinBox()
+        self.spin_scan_interval.setRange(2, 10)
+        self.spin_scan_interval.setSingleStep(1)
+        self.spin_scan_interval.setToolTip(
+            "After the full-scan threshold, send every Nth chunk to the LLM. "
+            "Skipped chunks are scanned locally; those with <2 known names "
+            "are sent to the LLM in a follow-up pass."
+        )
+        llm_layout.addRow("Scan interval:", self.spin_scan_interval)
+
+        scan_hint = QLabel(
+            "For large files: chunks beyond the full-scan threshold are sampled "
+            "at the scan interval. Skipped chunks with fewer than 2 known names "
+            "are sent to the LLM in a targeted follow-up pass."
+        )
+        scan_hint.setWordWrap(True)
+        scan_hint.setStyleSheet("color: gray; font-size: 11px;")
+        llm_layout.addRow("", scan_hint)
+
         layout.addWidget(llm_group)
 
         # --- Prompt Group ---
@@ -150,6 +179,8 @@ class SettingsDialog(QDialog):
         self.spin_timeout.setValue(int(self.config.timeout_seconds))
         self.spin_max_tokens.setValue(int(self.config.max_tokens or 0))
         self.spin_chunk_bytes.setValue(int(self.config.chunk_max_bytes))
+        self.spin_begin_scan.setValue(self.config.begin_scan_chunks)
+        self.spin_scan_interval.setValue(self.config.scan_interval)
         self.edit_prompt.setPlainText(self.config.prompt_template)
         self.chk_remember_key.setChecked(self.config.remember_api_key)
 
@@ -186,6 +217,8 @@ class SettingsDialog(QDialog):
             prompt_template=self.edit_prompt.toPlainText() or DEFAULT_PROMPT_TEMPLATE,
             chunk_max_bytes=int(self.spin_chunk_bytes.value()),
             request_interval_seconds=self.config.request_interval_seconds,
+            begin_scan_chunks=self.spin_begin_scan.value(),
+            scan_interval=self.spin_scan_interval.value(),
             remember_api_key=remember,
             api_key=api_key,
         )

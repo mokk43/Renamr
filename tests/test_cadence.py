@@ -1,5 +1,6 @@
-"""Tests for LLM request cadence enforcement."""
+"""Tests for LLM request cadence and sampled extraction behavior."""
 
+import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -45,7 +46,7 @@ class TestCadenceEnforcement:
         # Check that time.monotonic is used in the source
         import inspect
 
-        source = inspect.getsource(ExtractNamesWorker.run)
+        source = inspect.getsource(ExtractNamesWorker._wait_interval)
         assert "time.monotonic" in source
 
     def test_worker_respects_interval_config(self):
@@ -94,8 +95,7 @@ class TestLLMClientMocking:
             response = client.chat("Extract names from: ...")
 
             # Verify response
-            with patch("txt_process.core.name_extract._dbg", lambda *args, **kwargs: None):
-                names = extract_names_from_response(response)
+            names = extract_names_from_response(response)
             assert names == ["张三", "李四"]
 
     def test_mock_llm_empty_response(self):
@@ -158,24 +158,85 @@ class TestNoRetryBehavior:
         )
 
         worker = ExtractNamesWorker(text="hello world", config=config, api_key="ollama")
-        progress_events: list[tuple[int, int, str]] = []
-        finished_payload: list[list[str]] = []
-        worker.progress.connect(lambda c, t, s: progress_events.append((c, t, s)))
-        worker.finished.connect(lambda names: finished_payload.append(names))
+        error_payload: list[tuple[str, str]] = []
+        chunk_errors: list[tuple[int, str]] = []
+        worker.error.connect(lambda message, details: error_payload.append((message, details)))
+        worker.chunk_error.connect(lambda idx, msg: chunk_errors.append((idx, msg)))
 
         with patch("txt_process.ui.workers.split_into_chunks", return_value=["chunk-1"]):
             with patch("txt_process.ui.workers.LLMClient") as mock_llm:
-                with patch("txt_process.ui.workers._dbg", lambda *args, **kwargs: None):
-                    mock_llm.return_value.chat.side_effect = RuntimeError("simulated failure")
-                    worker.run()
+                mock_llm.return_value.chat.side_effect = RuntimeError("simulated failure")
+                worker.run()
 
         assert mock_llm.return_value.chat.call_count == 1
-        assert any(
-            status == "Chunk 1 failed, continuing..."
-            for _, _, status in progress_events
+        assert chunk_errors == [(0, "simulated failure")]
+        assert len(error_payload) == 1
+        assert error_payload[0][0] == "All 1 chunk(s) failed"
+
+
+class TestSampledExtractionBehavior:
+    """Tests for large-document phased extraction."""
+
+    def test_worker_uses_phased_sampling_for_large_documents(self):
+        """Large docs should use phase 1 sampling plus phase 3 targeted fill."""
+        from txt_process.core.config import Config
+        from txt_process.ui.workers import ExtractNamesWorker
+
+        chunks = [
+            "Alice appears in chunk 0",
+            "Bob appears in chunk 1",
+            "Alice and Bob appear in chunk 2",
+            "Alice Bob Carol in chunk 3",  # skipped: hit_count=2 -> no phase 3
+            "No known names in chunk 4",  # skipped: hit_count=0 -> phase 3
+            "Alice and Bob appear in chunk 5",
+            "Alice only in chunk 6",  # skipped: hit_count=1 -> phase 3
+            "Alice Bob in chunk 7",  # skipped: hit_count=2 -> no phase 3
+        ]
+        config = Config(
+            base_url="http://localhost:11434",
+            model="qwen3.5:0.8b",
+            prompt_template="{chunk_text}",
+            request_interval_seconds=0.0,
+            begin_scan_chunks=2,
+            scan_interval=3,
         )
-        assert all(
-            status != "Retrying with correction..."
-            for _, _, status in progress_events
-        )
-        assert finished_payload == [[]]
+
+        worker = ExtractNamesWorker(text="\n\n".join(chunks), config=config, api_key="ollama")
+        finished_payload: list[tuple[list[str], dict[str, int]]] = []
+        worker.finished.connect(lambda names, counts: finished_payload.append((names, counts)))
+
+        names_by_chunk: dict[str, list[str]] = {
+            chunks[0]: ["Alice"],
+            chunks[1]: ["Bob"],
+            chunks[2]: ["Alice", "Bob"],
+            chunks[3]: ["Alice", "Bob", "Carol"],
+            chunks[4]: ["Carol"],
+            chunks[5]: ["Alice", "Bob"],
+            chunks[6]: ["Alice", "Eve"],
+            chunks[7]: ["Alice", "Bob"],
+        }
+
+        called_prompts: list[str] = []
+
+        def fake_chat(prompt: str) -> str:
+            called_prompts.append(prompt)
+            return json.dumps({"names": names_by_chunk[prompt]}, ensure_ascii=False)
+
+        with patch("txt_process.ui.workers.split_into_chunks", return_value=chunks):
+            with patch("txt_process.ui.workers.LLMClient") as mock_llm:
+                mock_llm.return_value.chat.side_effect = fake_chat
+                worker.run()
+
+        # Phase 1 indices: [0, 1, 2, 5], Phase 3 candidates: [4, 6]
+        assert called_prompts == [
+            chunks[0],
+            chunks[1],
+            chunks[2],
+            chunks[5],
+            chunks[4],
+            chunks[6],
+        ]
+
+        assert len(finished_payload) == 1
+        names, _counts = finished_payload[0]
+        assert "Eve" in names

@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from txt_process.core.chunking import split_into_chunks
 from txt_process.core.config import Config, save_config
 from txt_process.core.io import load_text_file, save_text_file
 from txt_process.core.llm_client import is_ollama_base_url
@@ -235,8 +236,10 @@ class MainWindow(QMainWindow):
 
         size_kb = path.stat().st_size / 1024
         line_count = text.count("\n") + 1
+        chunk_count = len(split_into_chunks(text, self.config.chunk_max_bytes))
         self.lbl_file_info.setText(
-            f"{path.name} | {size_kb:.1f} KB | {line_count} lines | {encoding}"
+            f"{path.name} | {size_kb:.1f} KB | {line_count} lines | "
+            f"{chunk_count} chunks | {encoding}"
         )
 
         # Changing active file invalidates previous extracted names.
@@ -320,6 +323,7 @@ class MainWindow(QMainWindow):
         self.worker.progress.connect(self._on_extraction_progress)
         self.worker.chunk_names.connect(self._on_chunk_names)
         self.worker.chunk_error.connect(self._on_chunk_error)
+        self.worker.log.connect(self._log)
         self.worker.finished.connect(self._on_extraction_finished)
         self.worker.error.connect(self._on_extraction_error)
         self.worker.finished.connect(self._cleanup_worker)

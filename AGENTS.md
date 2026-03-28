@@ -3,7 +3,7 @@
 This document defines the **product requirements**, **architecture**, and **coding conventions** for building a Python GUI tool that:
 
 - Loads a `.txt` file
-- Calls an **OpenAI-compatible** LLM (serially, **1 chunk at a time**, **≥2s** between requests) to extract a **character/name list**
+- Calls an **OpenAI-compatible** LLM (serially, **1 chunk at a time**, **≥2s** between request starts) to extract a **character/name list**
 - Lets the user edit name mappings in a **2-column editable grid**
 - Replaces only the edited names in the original text and exports `*_processed.txt`
 - Provides a settings UI for LLM + prompt configuration and persists it to disk
@@ -16,7 +16,13 @@ This file is the source of truth for agent work in this repo.
 
 ### Core user flow
 - **Select file**: user chooses a `.txt`.
-- **Extract names**: app chunk-splits the document into blocks **<16KB** and sends chunks to the LLM **in order**. **One request per chunk** with **2 seconds** delay between requests.
+- **Extract names**: app chunk-splits the document into blocks **<16KB** and runs extraction in one of two modes:
+  - Small documents (`total_chunks <= begin_scan_chunks`): send every chunk to the LLM in order (serial).
+  - Large documents (`total_chunks > begin_scan_chunks`): phased sampled extraction:
+    - Phase 1 seed scan: send first `begin_scan_chunks` chunks, then every `scan_interval`-th chunk.
+    - Phase 2 local scan: for skipped chunks, count known-name substring hits.
+    - Phase 3 targeted fill: send skipped chunks with `<2` known-name hits.
+  - For every LLM call that is made, enforce **minimum 2 seconds between request starts**.
 - **Review/edit mapping**: app dedupes all extracted names into a list. UI shows a **two-column table**:
   - Column A: **original name** (read-only)
   - Column B: **replacement name** (editable input)
@@ -27,7 +33,9 @@ This file is the source of truth for agent work in this repo.
 ### Explicit constraints (must not violate)
 - **Chunk size**: each chunk must be **strictly < 16KB** (by bytes, UTF-8).
 - **Chunk composition**: each chunk consists of **one or more consecutive paragraphs** (preserve order).
-- **LLM calls**: **serial**; **one chunk per request**; **2 seconds** between requests (minimum).
+- **LLM calls**: **serial only** (no concurrency).
+- **Cadence**: enforce **≥2 seconds** between the start times of consecutive LLM requests (minimum).
+- **Sampling mode**: when `total_chunks > begin_scan_chunks`, it is valid to call the LLM on a subset of chunks as defined in the phased strategy.
 
 ---
 
@@ -98,6 +106,8 @@ Fields (minimum):
 - `prompt_template: str` (used for extraction)
 - `chunk_max_bytes: int` (default: 16384; enforce strict `< chunk_max_bytes`)
 - `request_interval_seconds: float` (fixed default: 2.0; enforce minimum)
+- `begin_scan_chunks: int` (default: 20; threshold for enabling sampled extraction)
+- `scan_interval: int` (default: 3; sampling interval after threshold)
 - `remember_api_key: bool` (optional)
 - `api_key_id: str` (optional reference if using keyring; never store the key itself)
 
@@ -141,9 +151,13 @@ Do not attempt to fit prompt+chunk under the limit unless the model/provider req
 - For Ollama port `11434`, API key may be empty.
 
 ### Calling pattern
-- One request per chunk.
-- Requests are **serial**; no concurrency.
-- Enforce **minimum 2.0 seconds** between request *starts* (use monotonic clock).
+- Requests are always **serial**; no concurrency.
+- For documents with `total_chunks <= begin_scan_chunks`, call LLM once per chunk in order.
+- For documents with `total_chunks > begin_scan_chunks`, use the phased sampled extraction strategy:
+  - Phase 1: first `begin_scan_chunks` chunks + every `scan_interval`-th chunk after that.
+  - Phase 2: local scan of skipped chunks using known names from Phase 1.
+  - Phase 3: call LLM only for skipped chunks with `<2` known-name hits.
+- Enforce **minimum 2.0 seconds** between request *starts* (use monotonic clock) for all LLM calls performed in any phase.
 
 ### Prompting contract
 The extraction prompt must strongly constrain output to a parseable format.
@@ -231,8 +245,9 @@ When applying multiple replacements:
   - paragraphs → chunks `<16KB`
   - oversized paragraph fallback works and preserves order
 - **LLM cadence**
-  - enforce serial calling
-  - enforce ≥2 seconds between calls (test via injected clock/sleep abstraction)
+  - enforce serial calling (no concurrent LLM requests)
+  - enforce ≥2 seconds between starts of consecutive LLM calls (test via injected clock/sleep abstraction)
+  - verify sampled extraction phase behavior (`begin_scan_chunks` + `scan_interval` + targeted fill)
 - **Protocol routing**
   - detect Ollama by endpoint port `11434`
   - use Ollama native `/api/chat` payload shape for Ollama
@@ -276,9 +291,9 @@ Do not run `pip install` automatically in agent actions unless explicitly reques
 ## Acceptance criteria (build must satisfy)
 - Can select and load `.txt` reliably (handles encoding errors gracefully).
 - Splits into ordered chunks, each **strictly <16KB** UTF-8 bytes.
-- Calls OpenAI-compatible model **serially**, one chunk per request, **≥2s** between requests.
+- Calls OpenAI-compatible model **serially** and enforces **≥2s** between starts of consecutive LLM requests.
+- For large documents, uses configured phased sampled extraction (`begin_scan_chunks`, `scan_interval`) and still respects serial + cadence constraints.
 - Auto-routes to Ollama native `/api/chat` when endpoint port is `11434` (API key optional there).
 - Dedupe merges extracted names into a list shown in a **2-column editable** UI.
 - Only edited mappings are replaced; export file name follows `*_processed` rule.
 - LLM settings + prompt persist and auto-load on startup.
-

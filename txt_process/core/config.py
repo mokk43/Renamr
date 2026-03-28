@@ -40,6 +40,8 @@ class Config:
     prompt_template: str = field(default_factory=lambda: DEFAULT_PROMPT_TEMPLATE)
     chunk_max_bytes: int = 16384
     request_interval_seconds: float = 2.0
+    begin_scan_chunks: int = 20
+    scan_interval: int = 3
     remember_api_key: bool = False
     api_key: str = ""
 
