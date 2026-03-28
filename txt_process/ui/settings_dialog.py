@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFormLayout,
+    QGridLayout,
     QGroupBox,
     QLabel,
     QLineEdit,
@@ -26,7 +26,7 @@ class SettingsDialog(QDialog):
 
     _BUTTON_MIN_HEIGHT = 36
     _BUTTON_MIN_WIDTH = 130
-    _MODEL_INPUT_MIN_WIDTH = 460
+    _CONTROL_MIN_HEIGHT = 30
 
     def __init__(self, config: Config, parent=None, session_api_key: str = "") -> None:
         super().__init__(parent)
@@ -43,60 +43,71 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # --- LLM Connection Group ---
+        # --- LLM Connection Group (unified 2-column grid) ---
+        # Grid columns: 0=labelL, 1=ctrlL, 2=spacing, 3=labelR, 4=ctrlR
         llm_group = QGroupBox("LLM Connection")
-        llm_layout = QFormLayout(llm_group)
+        g = QGridLayout(llm_group)
+        g.setContentsMargins(12, 12, 12, 12)
+        g.setVerticalSpacing(10)
+        g.setHorizontalSpacing(10)
+        g.setColumnStretch(1, 1)
+        g.setColumnMinimumWidth(2, 20)
+        g.setColumnStretch(4, 1)
+        row = 0
+
+        def _pair(r, l1, w1, l2, w2):
+            self._apply_control_height(w1)
+            self._apply_control_height(w2)
+            g.addWidget(self._label(l1), r, 0, Qt.AlignmentFlag.AlignRight)
+            g.addWidget(w1, r, 1)
+            g.addWidget(self._label(l2), r, 3, Qt.AlignmentFlag.AlignRight)
+            g.addWidget(w2, r, 4)
 
         self.edit_base_url = QLineEdit()
         self.edit_base_url.setPlaceholderText("https://api.openai.com/v1")
-        self.edit_base_url.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
-        llm_layout.addRow("Base URL:", self.edit_base_url)
-
         self.edit_api_key = QLineEdit()
         self.edit_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.edit_api_key.setPlaceholderText("sk-...")
-        self.edit_api_key.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
-        llm_layout.addRow("API Key:", self.edit_api_key)
+        _pair(row, "Base URL:", self.edit_base_url,
+              "API Key:", self.edit_api_key)
+        row += 1
 
         api_hint = QLabel(
-            "For local Ollama, API key can be empty and Base URL should be "
-            "http://localhost:11434 (port 11434 auto-selects Ollama protocol)"
+            "For local Ollama, API key can be empty; "
+            "use http://localhost:11434 to auto-select Ollama protocol."
         )
         api_hint.setWordWrap(True)
         api_hint.setStyleSheet("color: gray; font-size: 11px;")
-        llm_layout.addRow("", api_hint)
-
         self.chk_remember_key = QCheckBox("Remember API key (saved in config file)")
-        llm_layout.addRow("", self.chk_remember_key)
+        g.addWidget(api_hint, row, 0, 1, 2)
+        g.addWidget(self.chk_remember_key, row, 3, 1, 2)
+        row += 1
 
         self.edit_model = QLineEdit()
         self.edit_model.setPlaceholderText("gpt-4o-mini")
-        self.edit_model.setMinimumWidth(self._MODEL_INPUT_MIN_WIDTH)
-        llm_layout.addRow("Model:", self.edit_model)
-
         self.spin_temperature = QDoubleSpinBox()
         self.spin_temperature.setRange(0.0, 2.0)
         self.spin_temperature.setSingleStep(0.1)
         self.spin_temperature.setDecimals(2)
-        llm_layout.addRow("Temperature:", self.spin_temperature)
+        _pair(row, "Model:", self.edit_model,
+              "Temperature:", self.spin_temperature)
+        row += 1
 
         self.spin_timeout = QSpinBox()
         self.spin_timeout.setRange(10, 600)
         self.spin_timeout.setSuffix(" seconds")
-        llm_layout.addRow("Timeout:", self.spin_timeout)
-
         self.spin_max_tokens = QSpinBox()
         self.spin_max_tokens.setRange(0, 4096)
         self.spin_max_tokens.setSingleStep(32)
         self.spin_max_tokens.setSpecialValueText("Auto")
-        llm_layout.addRow("Max output tokens:", self.spin_max_tokens)
+        _pair(row, "Timeout:", self.spin_timeout,
+              "Max output tokens:", self.spin_max_tokens)
+        row += 1
 
         self.spin_chunk_bytes = QSpinBox()
         self.spin_chunk_bytes.setRange(1024, 65536)
         self.spin_chunk_bytes.setSingleStep(512)
         self.spin_chunk_bytes.setSuffix(" bytes")
-        llm_layout.addRow("Chunk max bytes:", self.spin_chunk_bytes)
-
         self.spin_begin_scan = QSpinBox()
         self.spin_begin_scan.setRange(5, 500)
         self.spin_begin_scan.setSingleStep(5)
@@ -105,7 +116,9 @@ class SettingsDialog(QDialog):
             "When total chunks exceed this value, switch to sampled extraction "
             "(all first N chunks are fully scanned, then only every Kth chunk)."
         )
-        llm_layout.addRow("Full-scan threshold:", self.spin_begin_scan)
+        _pair(row, "Chunk max bytes:", self.spin_chunk_bytes,
+              "Full-scan threshold:", self.spin_begin_scan)
+        row += 1
 
         self.spin_scan_interval = QSpinBox()
         self.spin_scan_interval.setRange(2, 10)
@@ -115,16 +128,18 @@ class SettingsDialog(QDialog):
             "Skipped chunks are scanned locally; those with <2 known names "
             "are sent to the LLM in a follow-up pass."
         )
-        llm_layout.addRow("Scan interval:", self.spin_scan_interval)
-
+        self._apply_control_height(self.spin_scan_interval)
+        g.addWidget(self._label("Scan interval:"), row, 0,
+                    Qt.AlignmentFlag.AlignRight)
+        g.addWidget(self.spin_scan_interval, row, 1)
         scan_hint = QLabel(
-            "For large files: chunks beyond the full-scan threshold are sampled "
-            "at the scan interval. Skipped chunks with fewer than 2 known names "
-            "are sent to the LLM in a targeted follow-up pass."
+            "For large files: chunks beyond the threshold are sampled; "
+            "skipped chunks with <2 known names get a follow-up pass."
         )
         scan_hint.setWordWrap(True)
         scan_hint.setStyleSheet("color: gray; font-size: 11px;")
-        llm_layout.addRow("", scan_hint)
+        g.addWidget(scan_hint, row, 3, 1, 2)
+        row += 1
 
         layout.addWidget(llm_group)
 
@@ -165,6 +180,16 @@ class SettingsDialog(QDialog):
         button_box.accepted.connect(self._on_accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+
+    def _label(self, text: str) -> QLabel:
+        """Create a right-aligned label with consistent styling."""
+        lbl = QLabel(text)
+        lbl.setMinimumHeight(self._CONTROL_MIN_HEIGHT)
+        return lbl
+
+    def _apply_control_height(self, widget) -> None:
+        """Apply consistent minimum height to input controls."""
+        widget.setMinimumHeight(self._CONTROL_MIN_HEIGHT)
 
     def _style_button(self, button: QPushButton) -> None:
         """Apply consistent larger button sizing."""
