@@ -14,11 +14,17 @@ class NameRow:
     original: str
     replacement: str = ""
     occurrence_count: int = 0
+    #: When True, the row was added by the user; column 0 (find text) is editable.
+    user_added: bool = False
 
     @property
     def is_edited(self) -> bool:
-        """Check if the replacement has been edited (non-empty and different)."""
-        return bool(self.replacement.strip()) and self.replacement.strip() != self.original
+        """True when this row contributes a find → replace mapping for export."""
+        orig = self.original.strip()
+        if not orig:
+            return False
+        rep = self.replacement.strip()
+        return bool(rep) and rep != orig
 
 
 class NameTableModel(QAbstractTableModel):
@@ -29,6 +35,7 @@ class NameTableModel(QAbstractTableModel):
     def __init__(self) -> None:
         super().__init__()
         self._rows: list[NameRow] = []
+        self._source_text: str = ""
 
     def rowCount(self, parent: QModelIndex | None = None) -> int:
         """Return number of rows."""
@@ -48,7 +55,10 @@ class NameTableModel(QAbstractTableModel):
 
         if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             if col == 0:
-                return f"{row.original} ({row.occurrence_count})"
+                if role == Qt.ItemDataRole.EditRole and row.user_added:
+                    return row.original
+                label = row.original if row.original.strip() else "—"
+                return f"{label} ({row.occurrence_count})"
             else:
                 return row.replacement
 
@@ -65,9 +75,24 @@ class NameTableModel(QAbstractTableModel):
         if not index.isValid() or role != Qt.ItemDataRole.EditRole:
             return False
 
-        if index.column() == 1:  # Only replacement column is editable
-            self._rows[index.row()].replacement = str(value)
+        row = self._rows[index.row()]
+        col = index.column()
+
+        if col == 1:
+            row.replacement = str(value)
             self.dataChanged.emit(index, index, [role])
+            return True
+
+        if col == 0 and row.user_added:
+            row.original = str(value)
+            row.occurrence_count = self._count_occurrences(row.original)
+            top_left = self.index(index.row(), 0)
+            bottom_right = self.index(index.row(), 1)
+            self.dataChanged.emit(
+                top_left,
+                bottom_right,
+                [role, Qt.ItemDataRole.DisplayRole],
+            )
             return True
 
         return False
@@ -75,7 +100,12 @@ class NameTableModel(QAbstractTableModel):
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         """Return item flags for the given index."""
         base_flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if index.column() == 1:  # Replacement column is editable
+        if not index.isValid() or not (0 <= index.row() < len(self._rows)):
+            return base_flags
+        row = self._rows[index.row()]
+        if index.column() == 1:
+            return base_flags | Qt.ItemFlag.ItemIsEditable
+        if index.column() == 0 and row.user_added:
             return base_flags | Qt.ItemFlag.ItemIsEditable
         return base_flags
 
@@ -99,6 +129,48 @@ class NameTableModel(QAbstractTableModel):
             for name in ordered_names
         ]
         self.endResetModel()
+
+    def set_source_text(self, text: str) -> None:
+        """Remember source text for occurrence counts (user-added and refresh)."""
+        self._source_text = text
+        self.refresh_occurrence_counts()
+
+    def _count_occurrences(self, original: str) -> int:
+        if not original:
+            return 0
+        return self._source_text.count(original)
+
+    def refresh_occurrence_counts(self) -> None:
+        """Recompute counts from source text for user-added rows only."""
+        if not self._rows:
+            return
+        for i, row in enumerate(self._rows):
+            if not row.user_added:
+                continue
+            new_count = self._count_occurrences(row.original)
+            if new_count != row.occurrence_count:
+                row.occurrence_count = new_count
+                top_left = self.index(i, 0)
+                bottom_right = self.index(i, 1)
+                self.dataChanged.emit(
+                    top_left,
+                    bottom_right,
+                    [Qt.ItemDataRole.DisplayRole],
+                )
+
+    def append_custom_row(self) -> None:
+        """Append an empty user-editable row (both columns) at the bottom."""
+        row_idx = len(self._rows)
+        self.beginInsertRows(QModelIndex(), row_idx, row_idx)
+        self._rows.append(
+            NameRow(
+                original="",
+                replacement="",
+                occurrence_count=0,
+                user_added=True,
+            )
+        )
+        self.endInsertRows()
 
     def get_edited_mappings(self) -> dict[str, str]:
         """Get a dict of original -> replacement for edited rows only."""

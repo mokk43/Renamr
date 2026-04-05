@@ -40,3 +40,27 @@ class TestNameTableModel:
 
         assert model.setData(model.index(0, 1), "Alicia")
         assert model.get_edited_mappings() == {"Alice": "Alicia"}
+
+    def test_append_custom_row_editable_both_columns(self, qapp):
+        """User-added rows contribute mappings when find and replace differ."""
+        model = NameTableModel()
+        model.set_source_text("foo bar foo")
+        model.append_custom_row()
+
+        assert model.rowCount() == 1
+        assert model.flags(model.index(0, 0)) & Qt.ItemFlag.ItemIsEditable
+        assert model.flags(model.index(0, 1)) & Qt.ItemFlag.ItemIsEditable
+
+        assert model.setData(model.index(0, 0), "foo")
+        assert model.data(model.index(0, 0), Qt.ItemDataRole.DisplayRole) == "foo (2)"
+        assert model.setData(model.index(0, 1), "FOO")
+        assert model.get_edited_mappings() == {"foo": "FOO"}
+
+    def test_set_source_text_does_not_recount_extracted_rows(self, qapp):
+        """Rows from extraction preserve worker-provided counts."""
+        model = NameTableModel()
+        model.set_names(["Alice"], {"Alice": 7})
+
+        model.set_source_text("Alice")
+
+        assert model.data(model.index(0, 0), Qt.ItemDataRole.DisplayRole) == "Alice (7)"

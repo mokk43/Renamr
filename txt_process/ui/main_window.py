@@ -148,6 +148,14 @@ class MainWindow(QMainWindow):
 
         # Table helper buttons
         table_btn_layout = QHBoxLayout()
+        self.btn_add_name = QPushButton("Add ...")
+        self.btn_add_name.setEnabled(False)
+        self._style_button(self.btn_add_name)
+        self.btn_add_name.setToolTip(
+            "Append a row to enter custom find/replace text (both columns editable)."
+        )
+        table_btn_layout.addWidget(self.btn_add_name)
+
         self.btn_reset_all = QPushButton("Reset All")
         self.btn_reset_all.setEnabled(False)
         self._style_button(self.btn_reset_all, min_width=130)
@@ -191,6 +199,7 @@ class MainWindow(QMainWindow):
         self.btn_settings.clicked.connect(self._on_settings)
         self.btn_cancel.clicked.connect(self._on_cancel)
         self.btn_reset_all.clicked.connect(self._on_reset_all)
+        self.btn_add_name.clicked.connect(self._on_add_name_row)
         self.name_model.dataChanged.connect(self._on_table_changed)
 
     def _update_button_states(self) -> None:
@@ -203,6 +212,7 @@ class MainWindow(QMainWindow):
         self.btn_normalize.setEnabled(has_file and not is_working)
         self.btn_replace.setEnabled(has_names and not is_working)
         self.btn_reset_all.setEnabled(has_names and not is_working)
+        self.btn_add_name.setEnabled(has_file and not is_working)
         self.btn_select_file.setEnabled(not is_working)
 
     def _log(self, message: str) -> None:
@@ -244,6 +254,7 @@ class MainWindow(QMainWindow):
 
         # Changing active file invalidates previous extracted names.
         self.name_model.set_names([])
+        self.name_model.set_source_text(self.current_text)
         self._on_table_changed()
         self._update_button_states()
 
@@ -294,6 +305,7 @@ class MainWindow(QMainWindow):
 
         # Start each extraction click with a clean table.
         self.name_model.set_names([])
+        self.name_model.set_source_text(self.current_text)
         self._on_table_changed()
 
         api_key = self._session_api_key or self.config.api_key
@@ -474,6 +486,19 @@ class MainWindow(QMainWindow):
             else:
                 self._session_api_key = None
             self._log("Settings saved")
+
+    @Slot()
+    def _on_add_name_row(self) -> None:
+        """Append an empty row with editable find and replacement columns."""
+        self.name_model.append_custom_row()
+        self.table_view.scrollToBottom()
+        last_row = self.name_model.rowCount() - 1
+        if last_row >= 0:
+            idx = self.name_model.index(last_row, 0)
+            self.table_view.setCurrentIndex(idx)
+            self.table_view.edit(idx)
+        self._on_table_changed()
+        self._update_button_states()
 
     @Slot()
     def _on_reset_all(self) -> None:
