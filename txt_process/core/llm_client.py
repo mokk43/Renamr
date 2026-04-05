@@ -55,7 +55,7 @@ class _OpenAIChatProtocol:
             timeout=timeout,
         )
 
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, *, request_timeout: float | None = None) -> str:
         kwargs = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -64,6 +64,8 @@ class _OpenAIChatProtocol:
         }
         if self.max_tokens is not None:
             kwargs["max_tokens"] = self.max_tokens
+        if request_timeout is not None:
+            kwargs["timeout"] = request_timeout
 
         response = self.client.chat.completions.create(**kwargs)
         output = ""
@@ -89,7 +91,7 @@ class _OllamaChatProtocol:
         self.max_tokens = max_tokens
         self.client = httpx.Client(base_url=_ollama_root_url(base_url), timeout=timeout)
 
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, *, request_timeout: float | None = None) -> str:
         payload: dict[str, object] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -101,7 +103,11 @@ class _OllamaChatProtocol:
             options["num_predict"] = self.max_tokens
         payload["options"] = options
 
-        response = self.client.post("/api/chat", json=payload)
+        post_kwargs: dict[str, object] = {"json": payload}
+        if request_timeout is not None:
+            post_kwargs["timeout"] = request_timeout
+
+        response = self.client.post("/api/chat", **post_kwargs)
         response.raise_for_status()
         data = response.json()
         output = ""
@@ -160,12 +166,14 @@ class LLMClient:
                 max_tokens=max_tokens,
             )
 
-    def chat(self, prompt: str) -> str:
+    def chat(self, prompt: str, *, timeout: float | None = None) -> str:
         """
         Send a chat completion request.
 
         Args:
             prompt: The user prompt to send.
+            timeout: Optional per-request timeout in seconds. When omitted, the
+                client uses the timeout from initialization.
 
         Returns:
             The assistant's response text.
@@ -173,4 +181,4 @@ class LLMClient:
         Raises:
             Exception: If the API call fails.
         """
-        return self.protocol.chat(prompt)
+        return self.protocol.chat(prompt, request_timeout=timeout)

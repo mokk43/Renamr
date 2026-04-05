@@ -18,6 +18,9 @@ from txt_process.core.name_extract import (
 if TYPE_CHECKING:
     from txt_process.core.config import Config
 
+# Fixed timeout for the first chunk's LLM call (ignores config.timeout_seconds).
+_FIRST_CHUNK_LLM_TIMEOUT_SECONDS = 30.0
+
 
 class ExtractNamesWorker(QObject):
     """Worker that extracts names from text using LLM.
@@ -104,7 +107,10 @@ class ExtractNamesWorker(QObject):
 
         try:
             self._last_request_start = time.monotonic()
-            response = client.chat(prompt)
+            chunk_timeout = (
+                _FIRST_CHUNK_LLM_TIMEOUT_SECONDS if chunk_idx == 0 else None
+            )
+            response = client.chat(prompt, timeout=chunk_timeout)
             names = extract_names_from_response(response)
             all_names.extend(names)
             self.chunk_names.emit(chunk_idx, names)

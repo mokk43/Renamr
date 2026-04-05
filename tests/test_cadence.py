@@ -218,7 +218,7 @@ class TestSampledExtractionBehavior:
 
         called_prompts: list[str] = []
 
-        def fake_chat(prompt: str) -> str:
+        def fake_chat(prompt: str, **_kwargs: object) -> str:
             called_prompts.append(prompt)
             return json.dumps({"names": names_by_chunk[prompt]}, ensure_ascii=False)
 
