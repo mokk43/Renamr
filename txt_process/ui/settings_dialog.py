@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -18,7 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from txt_process.core.config import Config, DEFAULT_PROMPT_TEMPLATE
+from txt_process.core.config import DEFAULT_PROMPT_TEMPLATE, Config
 
 
 class SettingsDialog(QDialog):
@@ -28,10 +29,17 @@ class SettingsDialog(QDialog):
     _BUTTON_MIN_WIDTH = 130
     _CONTROL_MIN_HEIGHT = 30
 
-    def __init__(self, config: Config, parent=None, session_api_key: str = "") -> None:
+    def __init__(
+        self,
+        config: Config,
+        parent=None,
+        session_api_key: str = "",
+        cached_names: list[str] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.config = config
         self._session_api_key_hint = session_api_key
+        self._cached_names = cached_names or []
         self._setup_ui()
         self._load_values()
 
@@ -164,7 +172,27 @@ class SettingsDialog(QDialog):
         btn_reset_prompt.clicked.connect(self._reset_prompt)
         prompt_layout.addWidget(btn_reset_prompt, alignment=Qt.AlignmentFlag.AlignRight)
 
-        layout.addWidget(prompt_group)
+        # --- Name Cache Group ---
+        cache_group = QGroupBox("Replacement Name Cache")
+        cache_layout = QVBoxLayout(cache_group)
+
+        cache_hint = QLabel(
+            "One name per line. These values appear as dropdown suggestions in "
+            "the replacement column, while free typing remains available."
+        )
+        cache_hint.setWordWrap(True)
+        cache_hint.setStyleSheet("color: gray; font-size: 11px;")
+        cache_layout.addWidget(cache_hint)
+
+        self.edit_cached_names = QPlainTextEdit()
+        self.edit_cached_names.setMinimumHeight(120)
+        cache_layout.addWidget(self.edit_cached_names)
+
+        # Prompt + cache in two columns
+        prompt_cache_layout = QHBoxLayout()
+        prompt_cache_layout.addWidget(prompt_group, 1)
+        prompt_cache_layout.addWidget(cache_group, 1)
+        layout.addLayout(prompt_cache_layout)
 
         # --- Dialog buttons ---
         button_box = QDialogButtonBox(
@@ -212,6 +240,7 @@ class SettingsDialog(QDialog):
         api_key = self.config.api_key or self._session_api_key_hint
         if api_key:
             self.edit_api_key.setText(api_key)
+        self.edit_cached_names.setPlainText("\n".join(self._cached_names))
 
     def _reset_prompt(self) -> None:
         """Reset prompt to default template."""
@@ -247,3 +276,16 @@ class SettingsDialog(QDialog):
             remember_api_key=remember,
             api_key=api_key,
         )
+
+    def get_cached_names(self) -> list[str]:
+        """Get manually edited cached replacement names from dialog."""
+        lines = self.edit_cached_names.toPlainText().splitlines()
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for line in lines:
+            name = line.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            normalized.append(name)
+        return normalized

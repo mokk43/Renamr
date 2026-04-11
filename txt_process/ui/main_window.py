@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Slot
@@ -28,8 +28,10 @@ from txt_process.core.chunking import split_into_chunks
 from txt_process.core.config import Config, save_config
 from txt_process.core.io import load_text_file, save_text_file
 from txt_process.core.llm_client import is_ollama_base_url
+from txt_process.core.name_cache import load_name_cache, merge_cached_names, save_name_cache
 from txt_process.core.normalize_txt import normalize_text_file
 from txt_process.core.replace import apply_replacements, build_output_path
+from txt_process.ui.delegates import ReplacementNameDelegate
 from txt_process.ui.models import NameTableModel
 from txt_process.ui.settings_dialog import SettingsDialog
 from txt_process.ui.workers import ExtractNamesWorker
@@ -54,6 +56,7 @@ class MainWindow(QMainWindow):
         self.worker: ExtractNamesWorker | None = None
         self.worker_thread: QThread | None = None
         self._extract_started_at: float | None = None
+        self.cached_replacement_names: list[str] = load_name_cache()
 
         self._setup_ui()
         self._connect_signals()
@@ -136,6 +139,11 @@ class MainWindow(QMainWindow):
         self.name_model = NameTableModel()
         self.table_view = QTableView()
         self.table_view.setModel(self.name_model)
+        self.replacement_delegate = ReplacementNameDelegate(
+            suggestions=self.cached_replacement_names,
+            parent=self.table_view,
+        )
+        self.table_view.setItemDelegateForColumn(1, self.replacement_delegate)
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table_view.horizontalHeader().setSectionResizeMode(
@@ -475,11 +483,16 @@ class MainWindow(QMainWindow):
     def _on_settings(self) -> None:
         """Open settings dialog."""
         dialog = SettingsDialog(
-            self.config, self, session_api_key=self._session_api_key or ""
+            self.config,
+            self,
+            session_api_key=self._session_api_key or "",
+            cached_names=self.cached_replacement_names,
         )
         if dialog.exec():
             self.config = dialog.get_config()
             save_config(self.config)
+            self.cached_replacement_names = save_name_cache(dialog.get_cached_names())
+            self.replacement_delegate.set_suggestions(self.cached_replacement_names)
             entered = dialog.get_api_key_entered()
             if entered:
                 self._session_api_key = entered
@@ -511,6 +524,18 @@ class MainWindow(QMainWindow):
         """Update edited count label."""
         count = len(self.name_model.get_edited_mappings())
         self.lbl_edited_count.setText(f"Edited: {count}")
+        self._sync_replacement_name_cache()
+
+    def _sync_replacement_name_cache(self) -> None:
+        """Persist newly entered replacement names into local cache."""
+        merged = merge_cached_names(
+            self.cached_replacement_names,
+            self.name_model.get_non_empty_replacements(),
+        )
+        if merged == self.cached_replacement_names:
+            return
+        self.cached_replacement_names = save_name_cache(merged)
+        self.replacement_delegate.set_suggestions(self.cached_replacement_names)
 
     def _log_extraction_duration(self, prefix: str = "Extraction time cost") -> None:
         """Log elapsed extraction time if extraction was started."""

@@ -62,11 +62,10 @@ class NameTableModel(QAbstractTableModel):
             else:
                 return row.replacement
 
-        if role == Qt.ItemDataRole.BackgroundRole:
-            if col == 1 and row.is_edited:
-                from PySide6.QtGui import QColor
+        if role == Qt.ItemDataRole.BackgroundRole and col == 1 and row.is_edited:
+            from PySide6.QtGui import QColor
 
-                return QColor(255, 120, 10)  # Light blue for edited
+            return QColor(255, 120, 10)  # Light blue for edited
 
         return None
 
@@ -113,9 +112,12 @@ class NameTableModel(QAbstractTableModel):
         self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
     ):
         """Return header data."""
-        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
-            if 0 <= section < len(self.HEADERS):
-                return self.HEADERS[section]
+        if (
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
+            and 0 <= section < len(self.HEADERS)
+        ):
+            return self.HEADERS[section]
         return None
 
     def set_names(self, names: list[str], counts: dict[str, int] | None = None) -> None:
@@ -175,6 +177,18 @@ class NameTableModel(QAbstractTableModel):
     def get_edited_mappings(self) -> dict[str, str]:
         """Get a dict of original -> replacement for edited rows only."""
         return {row.original: row.replacement.strip() for row in self._rows if row.is_edited}
+
+    def get_non_empty_replacements(self) -> list[str]:
+        """Get all non-empty replacement names entered in the table."""
+        values: list[str] = []
+        seen: set[str] = set()
+        for row in self._rows:
+            replacement = row.replacement.strip()
+            if not replacement or replacement in seen:
+                continue
+            seen.add(replacement)
+            values.append(replacement)
+        return values
 
     def reset_all(self) -> None:
         """Clear all replacement values."""

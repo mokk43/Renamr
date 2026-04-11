@@ -4,15 +4,19 @@
 `NEEDS_PLAN_APPROVAL`
 
 ## Plan
-BLUEPRINT - Large-document sampled extraction spec alignment:
-- Update `AGENTS.md` product flow + extraction contract to explicitly allow sampled extraction for large documents:
-  - small docs: serial one-call-per-chunk with minimum interval
-  - large docs: phased sampling (seed scan, local scan, targeted fill)
-- Update `AGENTS.md` testing requirements so cadence is validated on sampled LLM calls and add expectations for phase behavior.
-- Update tests to reflect the new contract:
-  - remove assumptions that every chunk must always call the model
-  - add unit tests for phased selection and no-retry behavior in sampled mode
-- Re-review current uncommitted patch against the revised contract and report remaining issues.
+BLUEPRINT - Local replacement-name cache and autocomplete:
+- Add `txt_process/core/name_cache.py` to persist a deduped replacement-name list in the user app config folder (`platformdirs`) as JSON.
+  - Provide load/save/merge helpers.
+  - Trim whitespace, drop empties, exact dedupe.
+- Add replacement-column autocomplete:
+  - Introduce a Qt item delegate for column B that uses an editable combo box.
+  - Keep free typing enabled while offering dropdown suggestions from cached names.
+- Add settings editor support for cache:
+  - In Settings dialog, add a multiline editor (one name per line) to manually manage cached names.
+  - Save edits back to cache file on dialog accept.
+- Auto-update cache when users enter new replacement names in the table:
+  - Observe table edits, merge any new non-empty replacement names into cache, persist, and refresh autocomplete options.
+- Add tests for cache module behavior (load/save/merge/dedupe).
 
 ## Log
 - Started Ollama protocol enhancement blueprint
