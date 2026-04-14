@@ -160,6 +160,7 @@ class SettingsDialog(QDialog):
             "Output format must be JSON: {\"names\": [...]}"
         )
         prompt_hint.setWordWrap(True)
+        prompt_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         prompt_hint.setStyleSheet("color: gray; font-size: 11px;")
         prompt_layout.addWidget(prompt_hint)
 
@@ -178,9 +179,10 @@ class SettingsDialog(QDialog):
 
         cache_hint = QLabel(
             "One name per line. These values appear as dropdown suggestions in "
-            "the replacement column, while free typing remains available."
+            "the replacement column."
         )
         cache_hint.setWordWrap(True)
+        cache_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         cache_hint.setStyleSheet("color: gray; font-size: 11px;")
         cache_layout.addWidget(cache_hint)
 

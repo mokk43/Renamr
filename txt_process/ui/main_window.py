@@ -76,7 +76,7 @@ class MainWindow(QMainWindow):
         file_layout = QHBoxLayout(file_group)
 
         self.btn_select_file = QPushButton("Select File...")
-        self._style_button(self.btn_select_file, min_width=160)
+        self._style_button(self.btn_select_file, min_width=124)
         file_layout.addWidget(self.btn_select_file)
 
         self.lbl_file_info = QLabel("No file selected")
@@ -156,9 +156,9 @@ class MainWindow(QMainWindow):
 
         # Table helper buttons
         table_btn_layout = QHBoxLayout()
-        self.btn_add_name = QPushButton("Add ...")
+        self.btn_add_name = QPushButton("Add Names")
         self.btn_add_name.setEnabled(False)
-        self._style_button(self.btn_add_name)
+        self._style_button(self.btn_add_name, min_width=130)
         self.btn_add_name.setToolTip(
             "Append a row to enter custom find/replace text (both columns editable)."
         )
