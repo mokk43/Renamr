@@ -24,17 +24,21 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from txt_process.core.chunking import split_into_chunks
 from txt_process.core.config import Config, save_config
-from txt_process.core.io import load_text_file, save_text_file
+from txt_process.core.document import Document
+from txt_process.core.epub_io import (
+    EpubEmptyError,
+    EpubEncryptedError,
+    EpubParseError,
+)
 from txt_process.core.llm_client import is_ollama_base_url
 from txt_process.core.name_cache import load_name_cache, merge_cached_names, save_name_cache
 from txt_process.core.normalize_txt import normalize_text_file
-from txt_process.core.replace import apply_replacements, build_output_path
+from txt_process.core.replace import build_output_path
 from txt_process.ui.delegates import ReplacementNameDelegate
 from txt_process.ui.models import NameTableModel
 from txt_process.ui.settings_dialog import SettingsDialog
-from txt_process.ui.workers import ExtractNamesWorker
+from txt_process.ui.workers import ExtractNamesWorker, LoadDocumentWorker
 
 if TYPE_CHECKING:
     from PySide6.QtCore import QThread
@@ -49,18 +53,32 @@ class MainWindow(QMainWindow):
     def __init__(self, config: Config) -> None:
         super().__init__()
         self.config = config
-        self.current_file: Path | None = None
-        self.current_text: str = ""
-        self.current_encoding: str = "utf-8"
+        self.current_doc: Document | None = None
         self._session_api_key: str | None = None
         self.worker: ExtractNamesWorker | None = None
         self.worker_thread: QThread | None = None
+        self.load_worker: LoadDocumentWorker | None = None
+        self.load_worker_thread: QThread | None = None
         self._extract_started_at: float | None = None
         self.cached_replacement_names: list[str] = load_name_cache()
 
         self._setup_ui()
         self._connect_signals()
         self._update_button_states()
+
+    @property
+    def current_file(self) -> Path | None:
+        return self.current_doc.path if self.current_doc else None
+
+    @property
+    def current_text(self) -> str:
+        return self.current_doc.text if self.current_doc else ""
+
+    @property
+    def current_encoding(self) -> str:
+        if self.current_doc is None:
+            return "utf-8"
+        return self.current_doc.encoding or "utf-8"
 
     def _setup_ui(self) -> None:
         """Set up the user interface."""
@@ -212,16 +230,23 @@ class MainWindow(QMainWindow):
 
     def _update_button_states(self) -> None:
         """Update button enabled states based on current state."""
-        has_file = self.current_file is not None
+        has_file = self.current_doc is not None
         has_names = self.name_model.rowCount() > 0
         is_working = self.worker is not None
+        is_loading = self.load_worker is not None
+        busy = is_working or is_loading
 
-        self.btn_extract.setEnabled(has_file and not is_working)
-        self.btn_normalize.setEnabled(has_file and not is_working)
-        self.btn_replace.setEnabled(has_names and not is_working)
-        self.btn_reset_all.setEnabled(has_names and not is_working)
-        self.btn_add_name.setEnabled(has_file and not is_working)
-        self.btn_select_file.setEnabled(not is_working)
+        supports_normalize = (
+            self.current_doc.supports_normalize if self.current_doc else True
+        )
+        self.btn_normalize.setVisible(supports_normalize)
+
+        self.btn_extract.setEnabled(has_file and not busy)
+        self.btn_normalize.setEnabled(has_file and not busy and supports_normalize)
+        self.btn_replace.setEnabled(has_names and not busy)
+        self.btn_reset_all.setEnabled(has_names and not busy)
+        self.btn_add_name.setEnabled(has_file and not busy)
+        self.btn_select_file.setEnabled(not busy)
 
     def _log(self, message: str) -> None:
         """Append message to log panel."""
@@ -232,39 +257,97 @@ class MainWindow(QMainWindow):
         """Handle file selection."""
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Text File",
+            "Select File",
             "",
-            "All Files (*)",
+            "Supported (*.txt *.epub);;Text Files (*.txt);;"
+            "EPUB Books (*.epub);;All Files (*)",
         )
         if file_path:
-            path = Path(file_path)
-            try:
-                self._set_active_file(path)
-                self._log(f"Loaded: {path}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to load file:\n{e}")
-                self._log(f"Error loading file: {e}")
+            self._start_load(Path(file_path))
 
-    def _set_active_file(self, path: Path) -> None:
-        """Load a file and make it the active file for all operations."""
-        text, encoding = load_text_file(path)
-        self.current_file = path
-        self.current_text = text
-        self.current_encoding = encoding
+    def _start_load(self, path: Path) -> None:
+        """Kick off a :class:`LoadDocumentWorker` for ``path``."""
+        from PySide6.QtCore import QThread
 
-        size_kb = path.stat().st_size / 1024
-        line_count = text.count("\n") + 1
-        chunk_count = len(split_into_chunks(text, self.config.chunk_max_bytes))
-        self.lbl_file_info.setText(
-            f"{path.name} | {size_kb:.1f} KB | {line_count} lines | "
-            f"{chunk_count} chunks | {encoding}"
-        )
+        self.load_worker = LoadDocumentWorker(path=path)
+        self.load_worker_thread = QThread()
+        self.load_worker.moveToThread(self.load_worker_thread)
+
+        self.load_worker_thread.started.connect(self.load_worker.run)
+        self.load_worker.progress.connect(self._on_load_progress)
+        self.load_worker.finished.connect(self._on_load_finished)
+        self.load_worker.error.connect(self._on_load_error)
+        self.load_worker.finished.connect(self._cleanup_load_worker)
+        self.load_worker.error.connect(self._cleanup_load_worker)
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(0)  # indeterminate
+        self.progress_bar.setValue(0)
+        self.lbl_status.setText(f"Loading {path.name}...")
+        self._update_button_states()
+
+        self.load_worker_thread.start()
+
+    @Slot(int, int, str)
+    def _on_load_progress(self, current: int, total: int, status: str) -> None:
+        if total > 0:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(current)
+        self.lbl_status.setText(status)
+
+    @Slot(object)
+    def _on_load_finished(self, doc: object) -> None:
+        if not isinstance(doc, Document):
+            return
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximum(100)
+        self.lbl_status.setText("")
+        self._activate_document(doc)
+        self._log(f"Loaded: {doc.path}")
+
+    @Slot(str, str, str)
+    def _on_load_error(self, kind: str, message: str, details: str) -> None:
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setMaximum(100)
+        self.lbl_status.setText("")
+        friendly, title = self._friendly_load_error(kind, message)
+        QMessageBox.critical(self, title, friendly)
+        self._log(f"Error loading file: {message}")
+        if details and details != message:
+            self._log(f"Details: {details}")
+
+    def _friendly_load_error(self, kind: str, message: str) -> tuple[str, str]:
+        if kind == EpubEncryptedError.__name__:
+            return (
+                "This EPUB is DRM-protected or uses font obfuscation and "
+                "cannot be processed.",
+                "DRM-protected EPUB",
+            )
+        if kind == EpubEmptyError.__name__:
+            return (
+                "This EPUB contains no readable content.",
+                "Empty EPUB",
+            )
+        if kind == EpubParseError.__name__:
+            return (f"Failed to parse EPUB:\n{message}", "EPUB Parse Error")
+        return (f"Failed to load file:\n{message}", "Error")
+
+    def _activate_document(self, doc: Document) -> None:
+        """Make ``doc`` the active document and refresh the UI."""
+        self.current_doc = doc
+        self.lbl_file_info.setText(doc.display_info)
 
         # Changing active file invalidates previous extracted names.
         self.name_model.set_names([])
-        self.name_model.set_source_text(self.current_text)
+        self.name_model.set_source_text(doc.text)
         self._on_table_changed()
         self._update_button_states()
+
+    def _set_active_file(self, path: Path) -> None:
+        """Synchronously load ``path`` (used after in-place normalize)."""
+        from txt_process.core.document import load_document
+
+        self._activate_document(load_document(path))
 
     def _build_normalized_path(self, input_path: Path) -> Path:
         """Build normalized output path with a _normalized suffix."""
@@ -273,10 +356,10 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_normalize(self) -> None:
         """Normalize active file layout and switch follow-up operations to that output."""
-        if self.current_file is None:
+        if self.current_doc is None or not self.current_doc.supports_normalize:
             return
 
-        source_path = self.current_file
+        source_path = self.current_doc.path
         normalized_path = self._build_normalized_path(source_path)
 
         try:
@@ -419,6 +502,16 @@ class MainWindow(QMainWindow):
         self._update_button_states()
 
     @Slot()
+    def _cleanup_load_worker(self) -> None:
+        """Clean up the document-load worker thread."""
+        if self.load_worker_thread:
+            self.load_worker_thread.quit()
+            self.load_worker_thread.wait()
+            self.load_worker_thread = None
+        self.load_worker = None
+        self._update_button_states()
+
+    @Slot()
     def _on_cancel(self) -> None:
         """Cancel current extraction."""
         if self.worker:
@@ -429,7 +522,7 @@ class MainWindow(QMainWindow):
     @Slot()
     def _on_replace(self) -> None:
         """Apply replacements and export."""
-        if not self.current_file or not self.current_text:
+        if self.current_doc is None or not self.current_doc.text:
             return
 
         mappings = self.name_model.get_edited_mappings()
@@ -441,33 +534,42 @@ class MainWindow(QMainWindow):
             )
             return
 
-        try:
-            result_text, counts = apply_replacements(self.current_text, mappings)
-            output_path = build_output_path(self.current_file)
+        doc = self.current_doc
+        output_path = build_output_path(doc.path)
+        save_filter = (
+            "EPUB Books (*.epub);;All Files (*)"
+            if doc.kind == "epub"
+            else "Text Files (*.txt);;All Files (*)"
+        )
 
-            # Try to save to default location
+        try:
             try:
-                save_text_file(output_path, result_text, self.current_encoding)
+                totals, per_item = doc.save_processed(mappings, output_path)
             except PermissionError:
-                # Ask user for alternate location
                 alt_path, _ = QFileDialog.getSaveFileName(
                     self,
                     "Save Processed File",
                     str(output_path),
-                    "Text Files (*.txt);;All Files (*)",
+                    save_filter,
                 )
                 if alt_path:
                     output_path = Path(alt_path)
-                    save_text_file(output_path, result_text, self.current_encoding)
+                    totals, per_item = doc.save_processed(mappings, output_path)
                 else:
                     return
 
-            # Report results
-            total_count = sum(counts.values())
-            self._log(f"Replaced {total_count} occurrences across {len(counts)} names")
-            for name, count in counts.items():
+            total_count = sum(totals.values())
+            self._log(
+                f"Replaced {total_count} occurrences across {len(totals)} names"
+            )
+            for name, count in totals.items():
                 if count > 0:
                     self._log(f"  {name}: {count}")
+            if per_item:
+                for item_name, item_counts in per_item.items():
+                    item_total = sum(item_counts.values())
+                    if item_total:
+                        self._log(f"  [{item_name}] {item_total} replacements")
             self._log(f"Saved to: {output_path}")
 
             QMessageBox.information(
