@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal
 
 from txt_process.core.chunking import split_into_chunks
+from txt_process.core.document import Document, load_document
 from txt_process.core.llm_client import LLMClient
 from txt_process.core.name_extract import (
     count_name_occurrences,
@@ -17,6 +19,38 @@ from txt_process.core.name_extract import (
 
 if TYPE_CHECKING:
     from txt_process.core.config import Config
+
+
+class LoadDocumentWorker(QObject):
+    """Worker that loads a :class:`Document` off the GUI thread.
+
+    Emits ``progress(current, total, status)`` updates suitable for a
+    busy-style indicator.  EPUB loading is the main reason this exists:
+    large books can take hundreds of milliseconds to parse, which would
+    otherwise freeze the window.
+    """
+
+    progress = Signal(int, int, str)  # current, total, status
+    finished = Signal(object)  # Document instance
+    error = Signal(str, str, str)  # kind, message, details
+
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
+
+    def run(self) -> None:
+        """Load the document, emitting progress + finished signals."""
+        try:
+            self.progress.emit(0, 1, f"Loading {self.path.name}...")
+            doc: Document = load_document(self.path)
+            self.progress.emit(1, 1, "Done")
+            self.finished.emit(doc)
+        except Exception as exc:  # noqa: BLE001 - surface everything to UI
+            self.error.emit(
+                type(exc).__name__,
+                str(exc) or "Failed to load document.",
+                repr(exc),
+            )
 
 # Fixed timeout for the first chunk's LLM call (ignores config.timeout_seconds).
 _FIRST_CHUNK_LLM_TIMEOUT_SECONDS = 30.0

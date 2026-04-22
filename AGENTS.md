@@ -288,6 +288,15 @@ Do not run `pip install` automatically in agent actions unless explicitly reques
 
 ---
 
+## EPUB handling (format-specific addendum)
+- Supported alongside `.txt`. Output is `*_processed.epub`, same container structure as input (chapters, CSS, images, fonts, TOC preserved byte-for-byte for non-text assets).
+- Extraction input for LLM is **spine items only**; replacement scope is broader — every manifest `ITEM_DOCUMENT` plus every `ITEM_NAVIGATION` (NCX) item.
+- Replacement operates on text nodes inside `<body>`/`<title>` (XHTML) and under `<navMap>`/`<pageList>`/`<navList>`/`<docTitle>`/`<docAuthor>` (NCX). `<script>` and `<style>` are never rewritten. Attributes (`href`, `src`, `alt`, `aria-label`, `title=`, `id`, `class`, `epub:type`) are not rewritten.
+- Adjacent text nodes under inline phrasing parents (`<span>`, `<em>`, `<i>`, `<b>`, `<strong>`, `<u>`, `<small>`, `<sub>`, `<sup>`, `<mark>`) are coalesced before matching, but only when the parents share tag+attribute set. Ruby annotations are not coalesced.
+- XHTML/NCX are parsed and serialized with `lxml-xml`. DOCTYPE is captured and re-prepended so well-formedness (and reader compatibility) is preserved.
+- Writing bypasses `ebooklib.write_epub` (which regenerates `<head>`/nav/ncx from `EpubBook.toc`) and writes the zip directly so all edits survive round-trip.
+- DRM / font-obfuscated EPUBs are detected via `META-INF/encryption.xml` and rejected with `EpubEncryptedError` at load time.
+- Normalize Layout is txt-only; the button is hidden when an EPUB is loaded.
 ## Acceptance criteria (build must satisfy)
 - Can select and load `.txt` reliably (handles encoding errors gracefully).
 - Splits into ordered chunks, each **strictly <16KB** UTF-8 bytes.
@@ -295,5 +304,6 @@ Do not run `pip install` automatically in agent actions unless explicitly reques
 - For large documents, uses configured phased sampled extraction (`begin_scan_chunks`, `scan_interval`) and still respects serial + cadence constraints.
 - Auto-routes to Ollama native `/api/chat` when endpoint port is `11434` (API key optional there).
 - Dedupe merges extracted names into a list shown in a **2-column editable** UI.
-- Only edited mappings are replaced; export file name follows `*_processed` rule.
+- Only edited mappings are replaced; export file name follows `*_processed` rule (matches input extension, so `story.epub` → `story_processed.epub`).
+- EPUB output preserves structure (chapters, CSS, images, TOC) and is rejected up front when DRM-protected.
 - LLM settings + prompt persist and auto-load on startup.
