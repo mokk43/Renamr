@@ -1,6 +1,5 @@
 """Tests for text replacement logic."""
 
-import pytest
 from pathlib import Path
 
 from txt_process.core.replace import apply_replacements, build_output_path
@@ -96,6 +95,26 @@ class TestApplyReplacements:
         assert counts["Alice"] == 2
         assert counts["Bob"] == 2
 
+    def test_english_names_case_insensitive(self):
+        """English names are replaced ignoring case."""
+        text = "Alice met ALICE and aLiCe."
+        mappings = {"alice": "Carol"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == "Carol met Carol and Carol."
+        assert counts["alice"] == 3
+
+    def test_non_english_names_remain_exact_match(self):
+        """Non-English names keep exact substring behavior."""
+        text = "张三遇到了張三。"
+        mappings = {"张三": "李四"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == "李四遇到了張三。"
+        assert counts["张三"] == 1
+
     def test_mixed_language(self):
         """Mixed Chinese and English replacement."""
         text = "张三 met Alice at the 咖啡馆。"
@@ -108,7 +127,7 @@ class TestApplyReplacements:
 
     def test_preserves_formatting(self):
         """Replacement preserves surrounding formatting."""
-        text = "「张三」说：\n"你好！"\n\n张三离开了。"
+        text = '「张三」说：\n"你好！"\n\n张三离开了。'
         mappings = {"张三": "李四"}
 
         result, counts = apply_replacements(text, mappings)
