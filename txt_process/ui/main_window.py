@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         """Set up the user interface."""
         self.setWindowTitle("Txt Character Renamer")
         self.setMinimumSize(900, 700)
+        self.resize(1125, 700)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -176,7 +177,7 @@ class MainWindow(QMainWindow):
         table_btn_layout = QHBoxLayout()
         self.btn_add_name = QPushButton("Add Names")
         self.btn_add_name.setEnabled(False)
-        self._style_button(self.btn_add_name, min_width=130)
+        self._style_button(self.btn_add_name, min_width=110)
         self.btn_add_name.setToolTip(
             "Append a row to enter custom find/replace text (both columns editable)."
         )
@@ -184,7 +185,7 @@ class MainWindow(QMainWindow):
 
         self.btn_import_names = QPushButton("Import Names")
         self.btn_import_names.setEnabled(False)
-        self._style_button(self.btn_import_names, min_width=130)
+        self._style_button(self.btn_import_names, min_width=110)
         self.btn_import_names.setToolTip(
             'Import name pairs from a CSV file ("source,target" per line).'
         )
@@ -194,7 +195,7 @@ class MainWindow(QMainWindow):
 
         self.btn_reset_all = QPushButton("Reset All")
         self.btn_reset_all.setEnabled(False)
-        self._style_button(self.btn_reset_all, min_width=130)
+        self._style_button(self.btn_reset_all, min_width=110)
         table_btn_layout.addWidget(self.btn_reset_all)
         table_layout.addLayout(table_btn_layout)
 
