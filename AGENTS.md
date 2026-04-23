@@ -26,7 +26,9 @@ This file is the source of truth for agent work in this repo.
 - **Review/edit mapping**: app dedupes all extracted names into a list. UI shows a **two-column table**:
   - Column A: **original name** (read-only)
   - Column B: **replacement name** (editable input)
+  - Post-processing rule: for extracted/imported rows, drop names whose `occurrence_count == 0` so they are not shown in "Character Names".
 - **Import mappings (optional)**: user may import a CSV (`source,target` per row) after loading a document to prefill the table.
+  - Import filtering: keep only rows whose source name has `occurrence_count > 0` in the active document.
 - **Replace/export**: on “Replace”, app replaces only the names whose replacement was edited (and non-empty per rules) and exports to a new file:
   - `original_filename_processed.txt` (suffix inserted before extension)
 - **Configure LLM**: UI allows configuring OpenAI-compatible connection fields and the extraction prompt; config is persisted and loaded on startup.
@@ -113,10 +115,11 @@ Fields (minimum):
 - `api_key_id: str` (optional reference if using keyring; never store the key itself)
 
 ### Name mapping row model
-Each deduped name becomes a row:
+Each deduped extracted/imported name with positive occurrence count becomes a row:
 - `original_name: str`
 - `replacement_name: str` (editable; may start empty)
 - `edited: bool` (true if user changed replacement to a non-empty different value)
+- `occurrence_count: int` (computed with replacement-matching counting rules)
 - `replace_count: int` (computed at export time; optional for UI)
 
 ---
@@ -187,6 +190,7 @@ Optional (only if explicitly enabled in config/UI):
 ### Replacement eligibility
 - Replace only if the user provided a **non-empty** replacement **different** from original.
 - Unedited rows must not cause replacements.
+- Rows with `occurrence_count == 0` must not be included in the replacement plan.
 
 ### Replacement ordering (avoid overlap bugs)
 When applying multiple replacements:
@@ -277,6 +281,7 @@ When applying multiple replacements:
   - output naming `_processed` insertion
 - **Occurrence counting**
   - counting logic matches replacement behavior exactly (boundary + case rules)
+  - extraction/import zero-count filtering uses replacement-matching count logic (not substring-only extraction count)
 
 ### Test environment convention (do not auto-install deps)
 If this is a Python project, testing should assume the user activates their environment via:
@@ -319,6 +324,7 @@ Do not run `pip install` automatically in agent actions unless explicitly reques
 - For large documents, uses configured phased sampled extraction (`begin_scan_chunks`, `scan_interval`) and still respects serial + cadence constraints.
 - Auto-routes to Ollama native `/api/chat` when endpoint port is `11434` (API key optional there).
 - Dedupe merges extracted names into a list shown in a **2-column editable** UI.
+- After extraction/import, names with `occurrence_count == 0` are filtered out from "Character Names" and excluded from replacement/export mappings.
 - Only edited mappings are replaced; export file name follows `*_processed` rule (matches input extension, so `story.epub` → `story_processed.epub`).
 - EPUB output preserves structure (chapters, CSS, images, TOC) and is rejected up front when DRM-protected.
 - LLM settings + prompt persist and auto-load on startup.

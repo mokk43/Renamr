@@ -123,9 +123,18 @@ class NameTableModel(QAbstractTableModel):
         return None
 
     def set_names(self, names: list[str], counts: dict[str, int] | None = None) -> None:
-        """Set names and optional occurrence counts, sorting by count desc."""
+        """Set names with counts, dropping zero-occurrence rows.
+
+        When source text is available, counts are recomputed using the same
+        matching rules as replacement to avoid false zeroes from upstream
+        substring-only counting.
+        """
         counts = counts or {}
-        ordered_names = sorted(names, key=lambda name: (-counts.get(name, 0), name))
+        if self._source_text:
+            for name in names:
+                counts[name] = self._count_occurrences(name)
+        filtered_names = [name for name in names if counts.get(name, 0) > 0]
+        ordered_names = sorted(filtered_names, key=lambda name: (-counts.get(name, 0), name))
 
         self.beginResetModel()
         self._rows = [
@@ -175,8 +184,12 @@ class NameTableModel(QAbstractTableModel):
         self.endInsertRows()
 
     def get_edited_mappings(self) -> dict[str, str]:
-        """Get a dict of original -> replacement for edited rows only."""
-        return {row.original: row.replacement.strip() for row in self._rows if row.is_edited}
+        """Get edited original -> replacement mappings with positive occurrences only."""
+        return {
+            row.original: row.replacement.strip()
+            for row in self._rows
+            if row.is_edited and row.occurrence_count > 0
+        }
 
     def get_non_empty_replacements(self) -> list[str]:
         """Get all non-empty replacement names entered in the table."""
@@ -195,7 +208,7 @@ class NameTableModel(QAbstractTableModel):
     ) -> None:
         """Set pre-filled source→target name pairs (e.g. from CSV import).
 
-        Rows are sorted by occurrence count descending, then alphabetically.
+        Rows with zero occurrences are dropped, then sorted by count desc.
         """
         counts = counts or {}
         if self._source_text:
@@ -203,7 +216,8 @@ class NameTableModel(QAbstractTableModel):
                 if src and src not in counts:
                     counts[src] = count_name_occurrences(self._source_text, src)
 
-        sorted_pairs = sorted(pairs, key=lambda p: (-counts.get(p[0], 0), p[0]))
+        filtered_pairs = [pair for pair in pairs if counts.get(pair[0], 0) > 0]
+        sorted_pairs = sorted(filtered_pairs, key=lambda p: (-counts.get(p[0], 0), p[0]))
         self.beginResetModel()
         self._rows = [
             NameRow(
