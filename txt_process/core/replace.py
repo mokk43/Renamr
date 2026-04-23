@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+
+def _contains_ascii_letters(value: str) -> bool:
+    """Return True when ``value`` includes at least one English letter."""
+    return bool(re.search(r"[A-Za-z]", value))
 
 
 def apply_replacements(text: str, mappings: dict[str, str]) -> tuple[str, dict[str, int]]:
@@ -31,6 +37,12 @@ def apply_replacements(text: str, mappings: dict[str, str]) -> tuple[str, dict[s
 
     for original in sorted_originals:
         replacement = mappings[original]
+        if _contains_ascii_letters(original):
+            pattern = re.compile(re.escape(original), flags=re.IGNORECASE)
+            result, count = pattern.subn(lambda _, rep=replacement: rep, result)
+            counts[original] = count
+            continue
+
         count = result.count(original)
         counts[original] = count
 

@@ -190,6 +190,31 @@ class NameTableModel(QAbstractTableModel):
             values.append(replacement)
         return values
 
+    def set_name_pairs(
+        self, pairs: list[tuple[str, str]], counts: dict[str, int] | None = None
+    ) -> None:
+        """Set pre-filled source→target name pairs (e.g. from CSV import).
+
+        Rows are sorted by occurrence count descending, then alphabetically.
+        """
+        counts = counts or {}
+        if self._source_text:
+            for src, _ in pairs:
+                if src and src not in counts:
+                    counts[src] = self._source_text.count(src)
+
+        sorted_pairs = sorted(pairs, key=lambda p: (-counts.get(p[0], 0), p[0]))
+        self.beginResetModel()
+        self._rows = [
+            NameRow(
+                original=src,
+                replacement=tgt,
+                occurrence_count=counts.get(src, 0),
+            )
+            for src, tgt in sorted_pairs
+        ]
+        self.endResetModel()
+
     def reset_all(self) -> None:
         """Clear all replacement values."""
         self.beginResetModel()

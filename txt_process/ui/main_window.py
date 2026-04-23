@@ -182,14 +182,20 @@ class MainWindow(QMainWindow):
         )
         table_btn_layout.addWidget(self.btn_add_name)
 
+        self.btn_import_names = QPushButton("Import Names")
+        self.btn_import_names.setEnabled(False)
+        self._style_button(self.btn_import_names, min_width=130)
+        self.btn_import_names.setToolTip(
+            'Import name pairs from a CSV file ("source,target" per line).'
+        )
+        table_btn_layout.addWidget(self.btn_import_names)
+
+        table_btn_layout.addStretch()
+
         self.btn_reset_all = QPushButton("Reset All")
         self.btn_reset_all.setEnabled(False)
         self._style_button(self.btn_reset_all, min_width=130)
         table_btn_layout.addWidget(self.btn_reset_all)
-        table_btn_layout.addStretch()
-
-        self.lbl_edited_count = QLabel("Edited: 0")
-        table_btn_layout.addWidget(self.lbl_edited_count)
         table_layout.addLayout(table_btn_layout)
 
         splitter.addWidget(table_group)
@@ -226,6 +232,7 @@ class MainWindow(QMainWindow):
         self.btn_cancel.clicked.connect(self._on_cancel)
         self.btn_reset_all.clicked.connect(self._on_reset_all)
         self.btn_add_name.clicked.connect(self._on_add_name_row)
+        self.btn_import_names.clicked.connect(self._on_import_names)
         self.name_model.dataChanged.connect(self._on_table_changed)
 
     def _update_button_states(self) -> None:
@@ -246,6 +253,7 @@ class MainWindow(QMainWindow):
         self.btn_replace.setEnabled(has_names and not busy)
         self.btn_reset_all.setEnabled(has_names and not busy)
         self.btn_add_name.setEnabled(has_file and not busy)
+        self.btn_import_names.setEnabled(has_file and not busy)
         self.btn_select_file.setEnabled(not busy)
 
     def _log(self, message: str) -> None:
@@ -616,6 +624,71 @@ class MainWindow(QMainWindow):
         self._update_button_states()
 
     @Slot()
+    def _on_import_names(self) -> None:
+        """Import name pairs from a CSV file (source,target per line)."""
+        import csv
+        import io
+
+        if self.current_doc is None:
+            QMessageBox.information(
+                self,
+                "No File Loaded",
+                "Please select a .txt or .epub file before importing names.",
+            )
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Name List",
+            "",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            raw = Path(file_path).read_text(encoding="utf-8-sig")
+            reader = csv.reader(io.StringIO(raw))
+            pairs: list[tuple[str, str]] = []
+            skipped = 0
+            for lineno, row in enumerate(reader, start=1):
+                if not row or (len(row) == 1 and not row[0].strip()):
+                    continue
+                if len(row) < 2:
+                    skipped += 1
+                    self._log(f"CSV line {lineno}: skipped (expected 2 columns, got {len(row)})")
+                    continue
+                src, tgt = row[0].strip(), row[1].strip()
+                if not src:
+                    skipped += 1
+                    continue
+                pairs.append((src, tgt))
+
+            if not pairs:
+                QMessageBox.warning(
+                    self,
+                    "Import Failed",
+                    "No valid name pairs found in the CSV file.\n"
+                    'Expected format: "source,target" per line.',
+                )
+                return
+
+            if self.current_doc:
+                self.name_model.set_source_text(self.current_doc.text)
+            self.name_model.set_name_pairs(pairs)
+            self._on_table_changed()
+            self._update_button_states()
+
+            msg = f"Imported {len(pairs)} name pairs from {Path(file_path).name}"
+            if skipped:
+                msg += f" ({skipped} lines skipped)"
+            self._log(msg)
+            self.lbl_status.setText(msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to read CSV:\n{e}")
+            self._log(f"CSV import error: {e}")
+
+    @Slot()
     def _on_reset_all(self) -> None:
         """Reset all replacement names."""
         self.name_model.reset_all()
@@ -623,9 +696,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _on_table_changed(self) -> None:
-        """Update edited count label."""
-        count = len(self.name_model.get_edited_mappings())
-        self.lbl_edited_count.setText(f"Edited: {count}")
+        """Sync replacement name cache when the table changes."""
         self._sync_replacement_name_cache()
 
     def _sync_replacement_name_cache(self) -> None:
