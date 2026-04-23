@@ -475,12 +475,15 @@ class MainWindow(QMainWindow):
         self.name_model.set_names(names, counts)
         self.progress_bar.setVisible(False)
         self.btn_cancel.setVisible(False)
+        kept_names = self.name_model.rowCount()
+        filtered_out = max(0, len(names) - kept_names)
         total_mentions = sum(counts.values())
         self.lbl_status.setText(
-            f"Extracted {len(names)} unique names, {total_mentions} total occurrences"
+            f"Extracted {len(names)} unique names; kept {kept_names} with >0 occurrences"
         )
         self._log(
-            f"Extraction complete: {len(names)} unique names, {total_mentions} total occurrences"
+            f"Extraction complete: {len(names)} unique names, {total_mentions} total occurrences, "
+            f"{filtered_out} filtered with 0 occurrences"
         )
         self._log_extraction_duration()
         self._update_button_states()
@@ -679,9 +682,16 @@ class MainWindow(QMainWindow):
             self._on_table_changed()
             self._update_button_states()
 
-            msg = f"Imported {len(pairs)} name pairs from {Path(file_path).name}"
+            kept = self.name_model.rowCount()
+            filtered_out = max(0, len(pairs) - kept)
+            msg = f"Imported {kept} name pairs from {Path(file_path).name}"
+            details: list[str] = []
+            if filtered_out:
+                details.append(f"{filtered_out} filtered with 0 occurrences")
             if skipped:
-                msg += f" ({skipped} lines skipped)"
+                details.append(f"{skipped} lines skipped")
+            if details:
+                msg += f" ({', '.join(details)})"
             self._log(msg)
             self.lbl_status.setText(msg)
         except Exception as e:
