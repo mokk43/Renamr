@@ -11,6 +11,38 @@ def _contains_ascii_letters(value: str) -> bool:
     return bool(re.search(r"[A-Za-z]", value))
 
 
+def _build_name_pattern(original: str) -> re.Pattern[str]:
+    """Build a compiled regex for *original* with safe word boundaries.
+
+    For names containing ASCII letters the pattern is wrapped with negative
+    lookaround for adjacent ASCII letters so that e.g. "terran" does **not**
+    match inside "terrain".  Standard ``\\b`` is unsuitable because Python 3
+    treats CJK characters as ``\\w``, which would prevent matches adjacent to
+    Chinese text (e.g. "这是terran的故事").
+
+    Non-ASCII-only names get a plain escaped pattern (no boundary guards).
+    """
+    escaped = re.escape(original)
+    if _contains_ascii_letters(original):
+        return re.compile(
+            rf"(?<![A-Za-z]){escaped}(?![A-Za-z])",
+            flags=re.IGNORECASE,
+        )
+    return re.compile(escaped)
+
+
+def count_name_occurrences(text: str, original: str) -> int:
+    """Count how many times *original* appears in *text*.
+
+    Uses the same boundary-aware logic as replacement so the UI count
+    matches what ``apply_replacements`` would actually substitute.
+    """
+    if not original or not text:
+        return 0
+    pattern = _build_name_pattern(original)
+    return len(pattern.findall(text))
+
+
 def apply_replacements(text: str, mappings: dict[str, str]) -> tuple[str, dict[str, int]]:
     """
     Apply name replacements to text.
@@ -29,7 +61,6 @@ def apply_replacements(text: str, mappings: dict[str, str]) -> tuple[str, dict[s
     if not mappings:
         return text, {}
 
-    # Sort by original name length descending to handle overlaps
     sorted_originals = sorted(mappings.keys(), key=len, reverse=True)
 
     counts: dict[str, int] = {}
@@ -37,17 +68,9 @@ def apply_replacements(text: str, mappings: dict[str, str]) -> tuple[str, dict[s
 
     for original in sorted_originals:
         replacement = mappings[original]
-        if _contains_ascii_letters(original):
-            pattern = re.compile(re.escape(original), flags=re.IGNORECASE)
-            result, count = pattern.subn(lambda _, rep=replacement: rep, result)
-            counts[original] = count
-            continue
-
-        count = result.count(original)
+        pattern = _build_name_pattern(original)
+        result, count = pattern.subn(lambda _, rep=replacement: rep, result)
         counts[original] = count
-
-        if count > 0:
-            result = result.replace(original, replacement)
 
     return result, counts
 

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from txt_process.core.replace import apply_replacements, build_output_path
+from txt_process.core.replace import apply_replacements, build_output_path, count_name_occurrences
 
 
 class TestApplyReplacements:
@@ -104,6 +104,68 @@ class TestApplyReplacements:
 
         assert result == "Carol met Carol and Carol."
         assert counts["alice"] == 3
+
+    def test_english_name_whole_word_only(self):
+        """English names must not match as part of a longer word."""
+        text = "The terrain was rough. Terran forces advanced."
+        mappings = {"terran": "泰拉"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert "terrain" in result
+        assert "泰拉 forces" in result
+        assert counts["terran"] == 1
+
+    def test_english_name_no_partial_prefix(self):
+        """English name should not match as a prefix of a longer word."""
+        text = "Bob and Bobby went outside."
+        mappings = {"Bob": "鲍勃"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == "鲍勃 and Bobby went outside."
+        assert counts["Bob"] == 1
+
+    def test_english_name_no_partial_suffix(self):
+        """English name should not match as a suffix of a longer word."""
+        text = "McAlice and Alice both arrived."
+        mappings = {"Alice": "爱丽丝"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == "McAlice and 爱丽丝 both arrived."
+        assert counts["Alice"] == 1
+
+    def test_english_name_adjacent_to_cjk(self):
+        """English name adjacent to CJK characters should still match."""
+        text = "这是terran的故事"
+        mappings = {"terran": "泰拉"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == "这是泰拉的故事"
+        assert counts["terran"] == 1
+
+    def test_english_name_with_punctuation_boundary(self):
+        """English name bounded by punctuation should match."""
+        text = '"Alice" said (Bob) to Alice.'
+        mappings = {"Alice": "爱丽丝", "Bob": "鲍勃"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert result == '"爱丽丝" said (鲍勃) to 爱丽丝.'
+        assert counts["Alice"] == 2
+        assert counts["Bob"] == 1
+
+    def test_english_name_with_digit_boundary(self):
+        """Digits are not ASCII letters; name bounded by digits should match."""
+        text = "Player1: Alice 2Alice"
+        mappings = {"Alice": "爱丽丝"}
+
+        result, counts = apply_replacements(text, mappings)
+
+        assert "爱丽丝" in result
+        assert counts["Alice"] == 2
 
     def test_non_english_names_remain_exact_match(self):
         """Non-English names keep exact substring behavior."""
@@ -228,3 +290,26 @@ class TestBuildOutputPath:
         result = build_output_path(input_path)
 
         assert result == Path("/path/to/.hidden_processed.txt")
+
+
+class TestCountNameOccurrences:
+    """Tests for word-boundary-aware occurrence counting."""
+
+    def test_english_whole_word(self):
+        assert count_name_occurrences("Alice met Alice", "Alice") == 2
+
+    def test_english_no_partial(self):
+        assert count_name_occurrences("The terrain was rough", "terran") == 0
+
+    def test_english_case_insensitive(self):
+        assert count_name_occurrences("bob BOB Bob", "Bob") == 3
+
+    def test_english_adjacent_cjk(self):
+        assert count_name_occurrences("这是Alice的故事", "Alice") == 1
+
+    def test_chinese_substring(self):
+        assert count_name_occurrences("张三丰和张三", "张三") == 2
+
+    def test_empty(self):
+        assert count_name_occurrences("", "Alice") == 0
+        assert count_name_occurrences("Alice", "") == 0
