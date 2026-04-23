@@ -26,6 +26,7 @@ This file is the source of truth for agent work in this repo.
 - **Review/edit mapping**: app dedupes all extracted names into a list. UI shows a **two-column table**:
   - Column A: **original name** (read-only)
   - Column B: **replacement name** (editable input)
+- **Import mappings (optional)**: user may import a CSV (`source,target` per row) after loading a document to prefill the table.
 - **Replace/export**: on “Replace”, app replaces only the names whose replacement was edited (and non-empty per rules) and exports to a new file:
   - `original_filename_processed.txt` (suffix inserted before extension)
 - **Configure LLM**: UI allows configuring OpenAI-compatible connection fields and the extraction prompt; config is persisted and loaded on startup.
@@ -193,8 +194,15 @@ When applying multiple replacements:
   - Prevents “张三” replacing inside “张三丰” before the longer token is handled.
 
 ### Replacement method
-- Default: **exact substring replace** (no regex unless explicitly designed).
+- For names containing ASCII letters (`A-Z`/`a-z`):
+  - Match **case-insensitively**.
+  - Enforce letter boundaries using adjacent-ASCII-letter guards so partial word matches are not replaced
+    (e.g., `Bob` does not rewrite `Bobby`).
+  - Do not require `\b` because CJK-adjacent names must still match
+    (e.g., `这是Alice的故事` should match `Alice`).
+- For names without ASCII letters: use exact substring matching.
 - Track counts per name and total.
+- Occurrence counting used by the UI/model must use the same matching rules as replacement.
 
 ### Output path/name
 - New file name: insert `_processed` **before** extension.
@@ -211,6 +219,7 @@ When applying multiple replacements:
 - File selection control + file metadata.
 - Buttons:
   - “Extract names”
+  - “Import Names”
   - “Replace / Export”
   - “Settings…”
 - Progress indicator:
@@ -261,7 +270,13 @@ When applying multiple replacements:
 - **Replacement**
   - only edited/non-empty replacements applied
   - overlap safety (length-desc order)
+  - English names replace case-insensitively
+  - English names do not replace as partial matches inside larger English words
+  - English names still match when adjacent to CJK text/punctuation/digits
+  - non-ASCII names keep exact substring behavior
   - output naming `_processed` insertion
+- **Occurrence counting**
+  - counting logic matches replacement behavior exactly (boundary + case rules)
 
 ### Test environment convention (do not auto-install deps)
 If this is a Python project, testing should assume the user activates their environment via:

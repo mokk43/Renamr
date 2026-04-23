@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
+from txt_process.core.replace import count_name_occurrences
+
 
 @dataclass
 class NameRow:
@@ -138,9 +140,7 @@ class NameTableModel(QAbstractTableModel):
         self.refresh_occurrence_counts()
 
     def _count_occurrences(self, original: str) -> int:
-        if not original:
-            return 0
-        return self._source_text.count(original)
+        return count_name_occurrences(self._source_text, original)
 
     def refresh_occurrence_counts(self) -> None:
         """Recompute counts from source text for user-added rows only."""
@@ -201,7 +201,7 @@ class NameTableModel(QAbstractTableModel):
         if self._source_text:
             for src, _ in pairs:
                 if src and src not in counts:
-                    counts[src] = self._source_text.count(src)
+                    counts[src] = count_name_occurrences(self._source_text, src)
 
         sorted_pairs = sorted(pairs, key=lambda p: (-counts.get(p[0], 0), p[0]))
         self.beginResetModel()
