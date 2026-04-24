@@ -59,9 +59,11 @@ def _split_oversized_paragraph(paragraph: str, max_bytes: int) -> list[str]:
     if _byte_length(paragraph) < max_bytes:
         return [paragraph]
 
-    # Try to split at sentence boundaries first
-    # Chinese: 。！？；  English: . ! ? ;
-    sentence_pattern = r"(?<=[。！？；.!?;])\s*"
+    # Try to split at sentence boundaries first. Chinese: 。！？； / English: . ! ? ;
+    # Use a zero-width lookbehind split so that any whitespace following the
+    # terminator stays attached to the next sentence. Joining sentences
+    # without an extra separator then preserves the original spacing.
+    sentence_pattern = r"(?<=[。！？；.!?;])"
     sentences = re.split(sentence_pattern, paragraph)
     sentences = [s for s in sentences if s.strip()]
 

@@ -63,8 +63,14 @@ This file is the source of truth for agent work in this repo.
 ### Config & secrets
 - Persist app config as **JSON** in user config directory via `platformdirs`.
 - API key handling:
-  - Default: **do not persist** plaintext keys in JSON.
-  - If “Remember API key” is implemented: use **keyring** (OS keychain).
+  - The key lives in the same config JSON as every other setting. It is
+    persisted in plaintext only when the user opts in via the “Remember
+    API key” checkbox; when unchecked the field is written back empty and
+    the entered value is kept in session memory only.
+  - The settings UI labels the checkbox accordingly (“Remember API key
+    (saved in config file)”) so users understand the trade-off.
+  - Never log or echo the key. The secret must never be emitted to the
+    log panel, progress messages, or error dialogs.
 
 ### Formatting & lint
 - **black** for formatting, **ruff** for linting, **pytest** for tests.
@@ -111,8 +117,8 @@ Fields (minimum):
 - `request_interval_seconds: float` (fixed default: 2.0; enforce minimum)
 - `begin_scan_chunks: int` (default: 20; threshold for enabling sampled extraction)
 - `scan_interval: int` (default: 3; sampling interval after threshold)
-- `remember_api_key: bool` (optional)
-- `api_key_id: str` (optional reference if using keyring; never store the key itself)
+- `remember_api_key: bool` (when false, ``api_key`` is persisted as an empty string)
+- `api_key: str` (persisted plaintext **only** when ``remember_api_key`` is true; empty otherwise)
 
 ### Name mapping row model
 Each deduped extracted/imported name with positive occurrence count becomes a row:
@@ -171,7 +177,12 @@ Required output format:
 
 If the provider returns text around JSON, implement robust extraction:
 - Prefer strict JSON parsing; if it fails, attempt to locate the first JSON object and parse.
-- If still failing, do **one** corrective retry that instructs the model to output only strict JSON.
+- If still failing, do **one** corrective retry that reissues the call
+  with a stricter instruction (“Respond with ONLY strict JSON…”). The
+  retry must still obey the ≥2s request-start cadence.
+- No heuristic “line-by-line” fallback is used. If the retry also fails
+  to parse, surface the original ``ValueError`` as a chunk failure —
+  never synthesize candidate names from freeform text.
 
 ### Dedupe & normalization rules
 At minimum:
@@ -268,7 +279,10 @@ When applying multiple replacements:
 - **Parsing**
   - strict JSON parsing
   - “JSON wrapped in text” extraction
-  - corrective retry behavior (mocked)
+  - non-JSON / invalid-structure inputs raise ``ValueError``
+  - corrective retry behavior (mocked): on parse failure the worker
+    reissues the call once with a strict-JSON instruction before
+    recording a chunk failure
 - **Dedupe**
   - trimming + empty removal + exact dedupe
 - **Replacement**
@@ -281,7 +295,11 @@ When applying multiple replacements:
   - output naming `_processed` insertion
 - **Occurrence counting**
   - counting logic matches replacement behavior exactly (boundary + case rules)
-  - extraction/import zero-count filtering uses replacement-matching count logic (not substring-only extraction count)
+  - a single source of truth lives in ``core.replace.count_name_occurrences``;
+    the worker and the UI model both call it. No parallel implementation
+    exists in ``core.name_extract``.
+  - extraction/import zero-count filtering uses this replacement-matching
+    count logic (not substring-only extraction count)
 
 ### Test environment convention (do not auto-install deps)
 If this is a Python project, testing should assume the user activates their environment via:

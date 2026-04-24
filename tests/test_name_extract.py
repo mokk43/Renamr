@@ -3,7 +3,6 @@
 import pytest
 
 from txt_process.core.name_extract import (
-    count_name_occurrences,
     extract_names_from_response,
     normalize_name,
     dedupe_names,
@@ -69,34 +68,27 @@ class TestExtractNamesFromResponse:
         result = extract_names_from_response("   \n\t  ")
         assert result == []
 
-    def test_line_by_line_fallback(self):
-        """Fall back to line-by-line extraction."""
+    def test_plain_text_raises(self):
+        """Non-JSON prose must raise so the worker can trigger a corrective retry."""
         response = """张三
 李四
 王五"""
-        result = extract_names_from_response(response)
-        assert "张三" in result
-        assert "李四" in result
-        assert "王五" in result
+        with pytest.raises(ValueError):
+            extract_names_from_response(response)
 
-    def test_numbered_list_fallback(self):
-        """Handle numbered list format."""
+    def test_numbered_list_raises(self):
+        """Numbered plain-text lists must raise (no heuristic fallback)."""
         response = """1. 张三
 2. 李四
 3. 王五"""
-        result = extract_names_from_response(response)
-        assert "张三" in result
-        assert "李四" in result
-        assert "王五" in result
+        with pytest.raises(ValueError):
+            extract_names_from_response(response)
 
-    def test_invalid_json_structure(self):
-        """Handle JSON without 'names' key."""
+    def test_invalid_json_structure_raises(self):
+        """JSON without a 'names' list raises so callers can retry."""
         response = '{"characters": ["Alice"]}'
-        # Should fall back to line extraction or raise
-        # Since it doesn't have names key, try other methods
-        result = extract_names_from_response(response)
-        # May or may not extract anything depending on fallback logic
-        # Just ensure it doesn't crash
+        with pytest.raises(ValueError):
+            extract_names_from_response(response)
 
     def test_mixed_types_in_names(self):
         """Handle mixed types in names array."""
@@ -175,31 +167,3 @@ class TestDedupeNames:
         assert result == ["张三", "Alice", "Bob"]
 
 
-class TestCountNameOccurrences:
-    """Tests for extracted-name occurrence counting in source text."""
-
-    def test_count_occurrences_for_each_name(self):
-        """Count each extracted name in the original text."""
-        text = "Alice met Bob. Alice waved at Bob. Carol watched."
-        names = ["Alice", "Bob", "Carol", "Diana"]
-
-        result = count_name_occurrences(text, names)
-
-        assert result == {
-            "Alice": 2,
-            "Bob": 2,
-            "Carol": 1,
-            "Diana": 0,
-        }
-
-    def test_count_with_normalization_and_dedupe(self):
-        """Normalize and dedupe names before counting."""
-        text = "Alice met Bob. Alice smiled."
-        names = [" Alice ", "Alice", " ", "", "Bob"]
-
-        result = count_name_occurrences(text, names)
-
-        assert result == {
-            "Alice": 2,
-            "Bob": 1,
-        }

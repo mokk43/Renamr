@@ -67,6 +67,61 @@ class TestCadenceEnforcement:
         assert worker.config.request_interval_seconds == 3.0
 
 
+class TestSerialCadence:
+    """End-to-end assertion: worker issues serial calls ≥ interval apart."""
+
+    def test_serial_calls_respect_interval_and_no_overlap(self):
+        """LLM calls must be serial (no overlap) and ≥ interval apart."""
+        import threading
+
+        from txt_process.core.config import Config
+        from txt_process.ui.workers import ExtractNamesWorker
+
+        interval = 0.2  # keep test fast while still enforcing cadence
+        config = Config(
+            base_url="http://localhost:11434",
+            model="mock",
+            prompt_template="{chunk_text}",
+            request_interval_seconds=interval,
+            begin_scan_chunks=10,  # force serial path
+        )
+
+        chunks = ["chunk-0", "chunk-1", "chunk-2"]
+        start_times: list[float] = []
+        end_times: list[float] = []
+        in_flight = 0
+        max_in_flight = 0
+        lock = threading.Lock()
+
+        def fake_chat(prompt: str, **_kwargs: object) -> str:
+            nonlocal in_flight, max_in_flight
+            with lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+                start_times.append(time.monotonic())
+            # Simulate some work; any overlap would be detectable here.
+            time.sleep(0.05)
+            with lock:
+                end_times.append(time.monotonic())
+                in_flight -= 1
+            return '{"names": []}'
+
+        worker = ExtractNamesWorker(text="\n\n".join(chunks), config=config, api_key="ollama")
+        with patch("txt_process.ui.workers.split_into_chunks", return_value=chunks):
+            with patch("txt_process.ui.workers.LLMClient") as mock_llm:
+                mock_llm.return_value.chat.side_effect = fake_chat
+                worker.run()
+
+        assert len(start_times) == len(chunks)
+        assert max_in_flight == 1, "LLM calls must be serial (no concurrency)"
+        for i in range(1, len(start_times)):
+            gap = start_times[i] - start_times[i - 1]
+            assert gap + 0.01 >= interval, (
+                f"Request {i} started {gap:.3f}s after prior start; "
+                f"expected ≥ {interval}s"
+            )
+
+
 class TestLLMClientMocking:
     """Tests for LLM client with mocked responses."""
 

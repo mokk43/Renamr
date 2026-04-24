@@ -12,10 +12,10 @@ from txt_process.core.chunking import split_into_chunks
 from txt_process.core.document import Document, load_document
 from txt_process.core.llm_client import LLMClient
 from txt_process.core.name_extract import (
-    count_name_occurrences,
     dedupe_names,
     extract_names_from_response,
 )
+from txt_process.core.replace import count_name_occurrences
 
 if TYPE_CHECKING:
     from txt_process.core.config import Config
@@ -145,7 +145,34 @@ class ExtractNamesWorker(QObject):
                 _FIRST_CHUNK_LLM_TIMEOUT_SECONDS if chunk_idx == 0 else None
             )
             response = client.chat(prompt, timeout=chunk_timeout)
-            names = extract_names_from_response(response)
+            try:
+                names = extract_names_from_response(response)
+            except ValueError as parse_err:
+                # One corrective retry: ask the model for strict JSON only.
+                self.log.emit(
+                    f"Chunk {chunk_idx + 1}: unparseable response, retrying with "
+                    f"strict-JSON instruction."
+                )
+                if not self._wait_interval(progress_idx, progress_total):
+                    self.error.emit("Cancelled", "Extraction was cancelled by user.")
+                    return None
+                self.progress.emit(
+                    progress_idx,
+                    progress_total,
+                    f"Retrying chunk {chunk_idx + 1} (strict JSON)...",
+                )
+                retry_prompt = (
+                    "Your previous response was not valid. Respond with ONLY "
+                    "strict JSON in this exact form and nothing else: "
+                    '{"names": ["Name1", "Name2", ...]}\n\n'
+                    + prompt
+                )
+                self._last_request_start = time.monotonic()
+                response = client.chat(retry_prompt, timeout=chunk_timeout)
+                try:
+                    names = extract_names_from_response(response)
+                except ValueError:
+                    raise parse_err  # surface the original parse failure
             all_names.extend(names)
             self.chunk_names.emit(chunk_idx, names)
             return True
@@ -332,7 +359,7 @@ class ExtractNamesWorker(QObject):
             return
 
         deduped = dedupe_names(all_names)
-        counts = count_name_occurrences(self.text, deduped)
+        counts = {name: count_name_occurrences(self.text, name) for name in deduped}
         self.finished.emit(deduped, counts)
 
 
@@ -348,11 +375,10 @@ def _extract_rate_limit_wait(message: str) -> dict[str, object]:
     import re
     import time
 
-    match = re.search(r"X-RateLimit-Reset': '\\d+'", message)
+    match = re.search(r"X-RateLimit-Reset': '(\d+)'", message)
     if match:
-        reset_str = match.group().split("'")[-2]
         try:
-            reset_ms = int(reset_str)
+            reset_ms = int(match.group(1))
             now_ms = int(time.time() * 1000)
             wait_seconds = max(0, int((reset_ms - now_ms) / 1000))
             return {
