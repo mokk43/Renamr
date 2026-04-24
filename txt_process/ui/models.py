@@ -129,7 +129,7 @@ class NameTableModel(QAbstractTableModel):
         matching rules as replacement to avoid false zeroes from upstream
         substring-only counting.
         """
-        counts = counts or {}
+        counts = dict(counts or {})
         if self._source_text:
             for name in names:
                 counts[name] = self._count_occurrences(name)
@@ -210,7 +210,7 @@ class NameTableModel(QAbstractTableModel):
 
         Rows with zero occurrences are dropped, then sorted by count desc.
         """
-        counts = counts or {}
+        counts = dict(counts or {})
         if self._source_text:
             for src, _ in pairs:
                 if src and src not in counts:

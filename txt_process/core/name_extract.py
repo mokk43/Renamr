@@ -10,8 +10,10 @@ def extract_names_from_response(response: str) -> list[str]:
     """
     Extract names from an LLM response.
 
-    Expects JSON format: {"names": ["Name1", "Name2", ...]}
-    Falls back to extracting JSON from wrapped text if strict parsing fails.
+    Expects strict JSON: ``{"names": ["Name1", "Name2", ...]}``.
+    If strict parsing fails, attempts to locate the first matching JSON
+    object in wrapping text. No heuristic (line-by-line) fallback is used;
+    callers are expected to perform a single corrective retry instead.
 
     Args:
         response: The LLM response text.
@@ -20,7 +22,7 @@ def extract_names_from_response(response: str) -> list[str]:
         List of extracted names.
 
     Raises:
-        ValueError: If no valid names can be extracted.
+        ValueError: If no valid JSON ``names`` list can be extracted.
     """
     response = response.strip()
 
@@ -49,8 +51,7 @@ def extract_names_from_response(response: str) -> list[str]:
         except json.JSONDecodeError:
             pass
 
-    # Try more aggressive JSON extraction
-    # Look for array pattern
+    # Try more aggressive JSON extraction for the bare array form
     array_match = re.search(r"\"names\"\s*:\s*(\[[^\]]*\])", response, re.DOTALL)
     if array_match:
         try:
@@ -59,31 +60,6 @@ def extract_names_from_response(response: str) -> list[str]:
                 return [str(n) for n in names if n]
         except json.JSONDecodeError:
             pass
-
-    # Try line-by-line extraction as last resort
-    # If each line looks like a name (no JSON syntax)
-    lines = response.strip().split("\n")
-    potential_names = []
-    for line in lines:
-        line = line.strip()
-        # Skip lines that look like JSON or markdown
-        if line.startswith(("{", "[", "```", "#", "-", "*")):
-            continue
-        # Skip empty lines
-        if not line:
-            continue
-        # Skip lines that are too long (probably not names)
-        if len(line) > 50:
-            continue
-        # Remove numbering like "1. " or "- "
-        line = re.sub(r"^\d+\.\s*", "", line)
-        line = re.sub(r"^[-*]\s*", "", line)
-        line = line.strip()
-        if line:
-            potential_names.append(line)
-
-    if potential_names:
-        return potential_names
 
     raise ValueError(f"Could not extract names from response: {response[:200]}")
 
@@ -134,20 +110,3 @@ def dedupe_names(names: list[str]) -> list[str]:
     return result
 
 
-def count_name_occurrences(text: str, names: list[str]) -> dict[str, int]:
-    """
-    Count occurrences for each extracted name in source text.
-
-    Names are normalized and deduplicated first to keep one entry per name.
-
-    Args:
-        text: Original source text.
-        names: Extracted names (may include duplicates and whitespace).
-
-    Returns:
-        Mapping of normalized name -> number of exact substring occurrences.
-    """
-    counts: dict[str, int] = {}
-    for name in dedupe_names(names):
-        counts[name] = text.count(name)
-    return counts
