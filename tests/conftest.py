@@ -1,7 +1,13 @@
 """Pytest configuration and fixtures."""
 
-import pytest
 from pathlib import Path
+
+import pytest
+
+try:
+    from PySide6.QtWidgets import QApplication
+except ModuleNotFoundError:  # pragma: no cover - handled by skip
+    QApplication = None
 
 
 @pytest.fixture
@@ -62,3 +68,14 @@ def large_text() -> str:
     paragraph = "这是一个测试段落，包含一些文字内容。张三和李四在讨论问题。" * 20
     paragraphs = [paragraph for _ in range(50)]
     return "\n\n".join(paragraphs)
+
+
+@pytest.fixture
+def qapp():
+    """Provide a Qt application instance when pytest-qt is unavailable."""
+    if QApplication is None:
+        pytest.skip("PySide6 is not installed")
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+    return app

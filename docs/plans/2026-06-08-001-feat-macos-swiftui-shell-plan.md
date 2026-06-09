@@ -305,6 +305,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ## Implementation Units
 
 ### U1. Introduce `core/api.py` single entry point
+**Status:** Completed (2026-06-09)
 
 **Goal:** Provide the canonical callable surface that both the PySide6 UI and the Python XPC adapter consume. Nothing outside `core.api` is imported by UI layers.
 
@@ -340,6 +341,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U2. Extract orchestration into `core/extraction.py`
+**Status:** Completed (2026-06-09)
 
 **Goal:** Move chunking driver, ≥2s cadence enforcement, phased extraction state machine, corrective retry on parse failure, and `X-RateLimit-Reset` regex handling out of `txt_process/ui/workers.py` into pure-Python `core/extraction.py`. Keep cancellation cooperative via the callback protocol.
 
@@ -387,6 +389,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U3. Move API-key blanking policy into `core/config.save_config()`
+**Status:** Completed (2026-06-09)
 
 **Goal:** Centralize the `remember_api_key=False → blank persisted key` policy in `core/config.save_config()` so both UIs share it. Session-only key remains held by the UI layer (UI passes the desired `Config` to `save_config`; `save_config` decides what to actually write).
 
@@ -424,6 +427,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U4. Refactor PySide6 `ui/workers.py` and `ui/settings_dialog.py` to thin adapters
+**Status:** Completed (2026-06-09)
 
 **Goal:** Strip extraction orchestration out of `ui/workers.py` (it now lives in `core.extraction`) and strip the API-key blanking out of `ui/settings_dialog.py` + `ui/main_window.py` (it now lives in `core.config.save_config`). Both UI layers call `core.api` only.
 
@@ -461,6 +465,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U5. Scenario test harness `tests/scenarios/`
+**Status:** Completed (2026-06-09)
 
 **Goal:** Establish the parity test harness that drives `core.api` end-to-end. These tests exercise the same code path both UIs depend on; their passing is the strongest single signal that the PySide6 and macOS UIs will behave identically.
 

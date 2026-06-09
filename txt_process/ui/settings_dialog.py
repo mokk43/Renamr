@@ -76,8 +76,7 @@ class SettingsDialog(QDialog):
         self.edit_api_key = QLineEdit()
         self.edit_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.edit_api_key.setPlaceholderText("sk-...")
-        _pair(row, "Base URL:", self.edit_base_url,
-              "API Key:", self.edit_api_key)
+        _pair(row, "Base URL:", self.edit_base_url, "API Key:", self.edit_api_key)
         row += 1
 
         api_hint = QLabel(
@@ -97,8 +96,7 @@ class SettingsDialog(QDialog):
         self.spin_temperature.setRange(0.0, 2.0)
         self.spin_temperature.setSingleStep(0.1)
         self.spin_temperature.setDecimals(2)
-        _pair(row, "Model:", self.edit_model,
-              "Temperature:", self.spin_temperature)
+        _pair(row, "Model:", self.edit_model, "Temperature:", self.spin_temperature)
         row += 1
 
         self.spin_timeout = QSpinBox()
@@ -108,8 +106,7 @@ class SettingsDialog(QDialog):
         self.spin_max_tokens.setRange(0, 4096)
         self.spin_max_tokens.setSingleStep(32)
         self.spin_max_tokens.setSpecialValueText("Auto")
-        _pair(row, "Timeout:", self.spin_timeout,
-              "Max output tokens:", self.spin_max_tokens)
+        _pair(row, "Timeout:", self.spin_timeout, "Max output tokens:", self.spin_max_tokens)
         row += 1
 
         self.spin_chunk_bytes = QSpinBox()
@@ -124,8 +121,13 @@ class SettingsDialog(QDialog):
             "When total chunks exceed this value, switch to sampled extraction "
             "(all first N chunks are fully scanned, then only every Kth chunk)."
         )
-        _pair(row, "Chunk max bytes:", self.spin_chunk_bytes,
-              "Full-scan threshold:", self.spin_begin_scan)
+        _pair(
+            row,
+            "Chunk max bytes:",
+            self.spin_chunk_bytes,
+            "Full-scan threshold:",
+            self.spin_begin_scan,
+        )
         row += 1
 
         self.spin_scan_interval = QSpinBox()
@@ -137,8 +139,7 @@ class SettingsDialog(QDialog):
             "are sent to the LLM in a follow-up pass."
         )
         self._apply_control_height(self.spin_scan_interval)
-        g.addWidget(self._label("Scan interval:"), row, 0,
-                    Qt.AlignmentFlag.AlignRight)
+        g.addWidget(self._label("Scan interval:"), row, 0, Qt.AlignmentFlag.AlignRight)
         g.addWidget(self.spin_scan_interval, row, 1)
         scan_hint = QLabel(
             "For large files: chunks beyond the threshold are sampled; "
@@ -157,7 +158,7 @@ class SettingsDialog(QDialog):
 
         prompt_hint = QLabel(
             "Use {chunk_text} as placeholder for the text chunk. "
-            "Output format must be JSON: {\"names\": [...]}"
+            'Output format must be JSON: {"names": [...]}'
         )
         prompt_hint.setWordWrap(True)
         prompt_hint.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
@@ -201,10 +202,7 @@ class SettingsDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         for button in button_box.buttons():
-            if (
-                button_box.standardButton(button)
-                == QDialogButtonBox.StandardButton.Cancel
-            ):
+            if button_box.standardButton(button) == QDialogButtonBox.StandardButton.Cancel:
                 button.setObjectName("cancelButton")
             self._style_button(button)
         button_box.accepted.connect(self._on_accept)
@@ -259,16 +257,14 @@ class SettingsDialog(QDialog):
     def get_config(self) -> Config:
         """Get the updated config from the dialog values."""
         remember = self.chk_remember_key.isChecked()
-        api_key = self.edit_api_key.text().strip() if remember else ""
+        api_key = self.edit_api_key.text().strip()
         return Config(
             base_url=self.edit_base_url.text().strip() or self.config.base_url,
             model=self.edit_model.text().strip() or self.config.model,
             temperature=self.spin_temperature.value(),
             timeout_seconds=float(self.spin_timeout.value()),
             max_tokens=(
-                int(self.spin_max_tokens.value())
-                if int(self.spin_max_tokens.value()) > 0
-                else None
+                int(self.spin_max_tokens.value()) if int(self.spin_max_tokens.value()) > 0 else None
             ),
             prompt_template=self.edit_prompt.toPlainText() or DEFAULT_PROMPT_TEMPLATE,
             chunk_max_bytes=int(self.spin_chunk_bytes.value()),

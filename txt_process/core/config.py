@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -75,18 +75,26 @@ def load_config() -> Config:
         try:
             with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
-            return Config.from_dict(data)
+            config = Config.from_dict(data)
+            if not config.remember_api_key and config.api_key:
+                config.api_key = ""
+            return config
         except (json.JSONDecodeError, OSError):
             pass
     return Config()
 
 
 def save_config(config: Config) -> None:
-    """Save configuration to disk."""
+    """Save configuration to disk.
+
+    When ``remember_api_key`` is disabled, ``api_key`` is always persisted as
+    an empty string. The in-memory ``config`` object is not mutated.
+    """
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = get_config_path()
+    payload = config.to_dict()
+    if not config.remember_api_key:
+        payload["api_key"] = ""
     with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
-
-
+        json.dump(payload, f, indent=2, ensure_ascii=False)

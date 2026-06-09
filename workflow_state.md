@@ -4,21 +4,18 @@
 `NEEDS_PLAN_APPROVAL`
 
 ## Plan
-BLUEPRINT - Local replacement-name cache and autocomplete:
-- Add `txt_process/core/name_cache.py` to persist a deduped replacement-name list in the user app config folder (`platformdirs`) as JSON.
-  - Provide load/save/merge helpers.
-  - Trim whitespace, drop empties, exact dedupe.
-- Add replacement-column autocomplete:
-  - Introduce a Qt item delegate for column B that uses an editable combo box.
-  - Keep free typing enabled while offering dropdown suggestions from cached names.
-- Add settings editor support for cache:
-  - In Settings dialog, add a multiline editor (one name per line) to manually manage cached names.
-  - Save edits back to cache file on dialog accept.
-- Auto-update cache when users enter new replacement names in the table:
-  - Observe table edits, merge any new non-empty replacement names into cache, persist, and refresh autocomplete options.
-- Add tests for cache module behavior (load/save/merge/dedupe).
+BLUEPRINT - Shared extraction facade and thin UI adapters:
+- Add `txt_process/core/api.py` as the public entry point for UI consumers.
+  - Re-export shared extraction/data types and provide wrappers for document load, settings persistence, cache, normalize, and replace/export.
+- Add `txt_process/core/extraction.py` and move extraction orchestration out of Qt workers.
+  - Keep serial/phased flow, cadence waits, corrective retry, rate-limit wait parsing, and callback-driven progress.
+- Centralize API-key persistence policy in `txt_process/core/config.py`.
+  - Persist blank key when `remember_api_key` is false, and defensively blank on load.
+- Refactor `txt_process/ui/workers.py` and settings save path to thin adapters over `core.api`.
+- Add/adjust tests (`test_api.py`, `test_extraction.py`, `test_config.py`, scenario round-trip) to lock behavior.
 
 ## Log
+- 2026-06-09: Started ce-work execution for plan `2026-06-08-001-feat-macos-swiftui-shell-plan.md` (U1-U4 tranche).
 - Started Ollama protocol enhancement blueprint
 - Scaffold created: pyproject.toml, README, package structure
 - Core modules: io.py, chunking.py, llm_client.py, name_extract.py, replace.py, config.py

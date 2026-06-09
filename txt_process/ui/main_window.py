@@ -24,7 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from txt_process.core.config import Config, save_config
+from txt_process.core.api import write_settings
+from txt_process.core.config import Config
 from txt_process.core.document import Document
 from txt_process.core.epub_io import (
     EpubEmptyError,
@@ -165,12 +166,8 @@ class MainWindow(QMainWindow):
         self.table_view.setItemDelegateForColumn(1, self.replacement_delegate)
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
-        self.table_view.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
-        )
-        self.table_view.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
+        self.table_view.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table_view.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         table_layout.addWidget(self.table_view)
 
         # Table helper buttons
@@ -244,9 +241,7 @@ class MainWindow(QMainWindow):
         is_loading = self.load_worker is not None
         busy = is_working or is_loading
 
-        supports_normalize = (
-            self.current_doc.supports_normalize if self.current_doc else True
-        )
+        supports_normalize = self.current_doc.supports_normalize if self.current_doc else True
         self.btn_normalize.setVisible(supports_normalize)
 
         self.btn_extract.setEnabled(has_file and not busy)
@@ -268,8 +263,7 @@ class MainWindow(QMainWindow):
             self,
             "Select File",
             "",
-            "Supported (*.txt *.epub);;Text Files (*.txt);;"
-            "EPUB Books (*.epub);;All Files (*)",
+            "Supported (*.txt *.epub);;Text Files (*.txt);;" "EPUB Books (*.epub);;All Files (*)",
         )
         if file_path:
             self._start_load(Path(file_path))
@@ -328,8 +322,7 @@ class MainWindow(QMainWindow):
     def _friendly_load_error(self, kind: str, message: str) -> tuple[str, str]:
         if kind == EpubEncryptedError.__name__:
             return (
-                "This EPUB is DRM-protected or uses font obfuscation and "
-                "cannot be processed.",
+                "This EPUB is DRM-protected or uses font obfuscation and " "cannot be processed.",
                 "DRM-protected EPUB",
             )
         if kind == EpubEmptyError.__name__:
@@ -571,9 +564,7 @@ class MainWindow(QMainWindow):
                     return
 
             total_count = sum(totals.values())
-            self._log(
-                f"Replaced {total_count} occurrences across {len(totals)} names"
-            )
+            self._log(f"Replaced {total_count} occurrences across {len(totals)} names")
             for name, count in totals.items():
                 if count > 0:
                     self._log(f"  {name}: {count}")
@@ -604,7 +595,7 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec():
             self.config = dialog.get_config()
-            save_config(self.config)
+            write_settings(self.config)
             self.cached_replacement_names = save_name_cache(dialog.get_cached_names())
             self.replacement_delegate.set_suggestions(self.cached_replacement_names)
             entered = dialog.get_api_key_entered()
