@@ -20,6 +20,9 @@ final class ConnectionSupervisor {
             if let progressReceiver {
                 connection.exportedInterface = NSXPCInterface(with: RenamrProgressProtocol.self)
                 connection.exportedObject = progressReceiver
+            } else {
+                connection.exportedInterface = nil
+                connection.exportedObject = nil
             }
             return connection
         }

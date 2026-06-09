@@ -13,13 +13,26 @@ actor RenamrService {
     }
 
     func ping() async throws -> String {
-        let proxy = try serviceProxy(progressReceiver: nil)
-        return try await withTimeout(seconds: 10) {
-            try await withCheckedThrowingContinuation { continuation in
-                proxy.ping { value in
-                    continuation.resume(returning: value)
+        do {
+            return try await withTimedResult(seconds: 10) { resolve in
+                do {
+                    let proxy = try self.serviceProxy(progressReceiver: nil) { error in
+                        resolve(.failure(Self.mapConnectionError(error)))
+                    }
+                    proxy.ping { value in
+                        resolve(.success(value))
+                    }
+                } catch {
+                    resolve(.failure(error))
                 }
             }
+        } catch {
+            if let serviceError = error as? RenamrServiceError,
+               serviceError == .timedOut || serviceError == .serviceCrashed
+            {
+                supervisor.reset()
+            }
+            throw error
         }
     }
 
@@ -41,34 +54,16 @@ actor RenamrService {
 
     func writeSettings(_ config: ConfigDTO) async throws {
         let payload = try encoder.encode(config)
-        let proxy = try serviceProxy(progressReceiver: nil)
-        try await withTimeout(seconds: defaultTimeout) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                proxy.writeSettings(payload: payload) { error in
-                    if let error {
-                        continuation.resume(throwing: RenamrServiceError.fromNSError(error))
-                    } else {
-                        continuation.resume(returning: ())
-                    }
-                }
-            }
+        try await callVoid(timeout: defaultTimeout) { proxy, reply in
+            proxy.writeSettings(payload: payload, reply: reply)
         }
     }
 
     func normalizeLayout(inputPath: String, outputPath: String) async throws {
         let request = NormalizeRequestDTO(inputPath: inputPath, outputPath: outputPath)
         let payload = try encoder.encode(request)
-        let proxy = try serviceProxy(progressReceiver: nil)
-        try await withTimeout(seconds: defaultTimeout) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                proxy.normalizeLayout(payload: payload) { error in
-                    if let error {
-                        continuation.resume(throwing: RenamrServiceError.fromNSError(error))
-                    } else {
-                        continuation.resume(returning: ())
-                    }
-                }
-            }
+        try await callVoid(timeout: defaultTimeout) { proxy, reply in
+            proxy.normalizeLayout(payload: payload, reply: reply)
         }
     }
 
@@ -130,6 +125,9 @@ actor RenamrService {
                     )
                     continuation.finish()
                 } catch {
+                    if let serviceError = error as? RenamrServiceError, serviceError == .timedOut {
+                        await self.cancel(token: token)
+                    }
                     continuation.finish(throwing: error)
                 }
             }
@@ -179,17 +177,34 @@ actor RenamrService {
     }
 
     func cancel(token: String) async {
-        guard let proxy = try? serviceProxy(progressReceiver: nil) else { return }
-        await withCheckedContinuation { continuation in
-            proxy.cancel(token: token) {
-                continuation.resume()
+        do {
+            _ = try await withTimedResult(seconds: 5) { resolve in
+                do {
+                    let proxy = try self.serviceProxy(progressReceiver: nil) { _ in
+                        resolve(.success(()))
+                    }
+                    proxy.cancel(token: token) {
+                        resolve(.success(()))
+                    }
+                } catch {
+                    resolve(.failure(error))
+                }
             }
+        } catch {
+            supervisor.reset()
         }
     }
 
-    private func serviceProxy(progressReceiver: RenamrProgressProtocol?) throws -> RenamrServiceProtocol {
+    private func serviceProxy(
+        progressReceiver: RenamrProgressProtocol?,
+        errorHandler: @escaping (NSError) -> Void
+    ) throws -> RenamrServiceProtocol {
         let connection = supervisor.activeConnection(progressReceiver: progressReceiver)
-        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ _ in }) as? RenamrServiceProtocol else {
+        guard
+            let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
+                errorHandler(error as NSError)
+            }) as? RenamrServiceProtocol
+        else {
             throw RenamrServiceError.serviceUnavailable
         }
         return proxy
@@ -200,9 +215,9 @@ actor RenamrService {
         progressReceiver: RenamrProgressProtocol?,
         _ call: @escaping (RenamrServiceProtocol, @escaping (Data?, NSError?) -> Void) -> Void
     ) async throws -> Data {
-        let proxy = try serviceProxy(progressReceiver: progressReceiver)
-        return try await withTimeout(seconds: timeout) {
-            try await withCheckedThrowingContinuation { continuation in
+        if let progressReceiver {
+            let proxy = try serviceProxy(progressReceiver: progressReceiver) { _ in }
+            return try await withCheckedThrowingContinuation { continuation in
                 call(proxy) { data, error in
                     if let error {
                         continuation.resume(throwing: RenamrServiceError.fromNSError(error))
@@ -216,31 +231,148 @@ actor RenamrService {
                 }
             }
         }
+
+        do {
+            return try await withTimedResult(seconds: timeout) { resolve in
+                do {
+                    let proxy = try self.serviceProxy(progressReceiver: nil) { error in
+                        resolve(.failure(Self.mapConnectionError(error)))
+                    }
+                    call(proxy) { data, error in
+                        if let error {
+                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            return
+                        }
+                        guard let data else {
+                            resolve(.failure(RenamrServiceError.pythonRaised))
+                            return
+                        }
+                        resolve(.success(data))
+                    }
+                } catch {
+                    resolve(.failure(error))
+                }
+            }
+        } catch {
+            if let serviceError = error as? RenamrServiceError,
+               serviceError == .timedOut || serviceError == .serviceCrashed
+            {
+                supervisor.reset()
+            }
+            throw error
+        }
     }
 
     private func callStringArray(
         timeout: TimeInterval,
         _ call: @escaping (RenamrServiceProtocol, @escaping ([String]?, NSError?) -> Void) -> Void
     ) async throws -> [String] {
-        let proxy = try serviceProxy(progressReceiver: nil)
-        return try await withTimeout(seconds: timeout) {
-            try await withCheckedThrowingContinuation { continuation in
-                call(proxy) { values, error in
-                    if let error {
-                        continuation.resume(throwing: RenamrServiceError.fromNSError(error))
-                        return
+        do {
+            return try await withTimedResult(seconds: timeout) { resolve in
+                do {
+                    let proxy = try self.serviceProxy(progressReceiver: nil) { error in
+                        resolve(.failure(Self.mapConnectionError(error)))
                     }
-                    continuation.resume(returning: values ?? [])
+                    call(proxy) { values, error in
+                        if let error {
+                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            return
+                        }
+                        resolve(.success(values ?? []))
+                    }
+                } catch {
+                    resolve(.failure(error))
                 }
+            }
+        } catch {
+            if let serviceError = error as? RenamrServiceError,
+               serviceError == .timedOut || serviceError == .serviceCrashed
+            {
+                supervisor.reset()
+            }
+            throw error
+        }
+    }
+
+    private func callVoid(
+        timeout: TimeInterval,
+        _ call: @escaping (RenamrServiceProtocol, @escaping (NSError?) -> Void) -> Void
+    ) async throws {
+        do {
+            try await withTimedResult(seconds: timeout) { (resolve: @escaping (Result<Void, Error>) -> Void) in
+                do {
+                    let proxy = try self.serviceProxy(progressReceiver: nil) { error in
+                        resolve(.failure(Self.mapConnectionError(error)))
+                    }
+                    call(proxy) { error in
+                        if let error {
+                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            return
+                        }
+                        resolve(.success(()))
+                    }
+                } catch {
+                    resolve(.failure(error))
+                }
+            }
+        } catch {
+            if let serviceError = error as? RenamrServiceError,
+               serviceError == .timedOut || serviceError == .serviceCrashed
+            {
+                supervisor.reset()
+            }
+            throw error
+        }
+    }
+
+    private func withTimedResult<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let resolution = TimedResolutionBox(continuation: continuation)
+
+            let nanoseconds = UInt64(max(seconds, 0) * 1_000_000_000)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + .nanoseconds(Int(nanoseconds))
+            ) {
+                resolution.resolve(.failure(RenamrServiceError.timedOut))
+            }
+
+            operation { result in
+                resolution.resolve(result)
             }
         }
     }
 
-    private func withTimeout<T>(
-        seconds: TimeInterval,
-        operation: @escaping () async throws -> T
-    ) async throws -> T {
-        _ = seconds
-        return try await operation()
+    private static func mapConnectionError(_ error: NSError) -> RenamrServiceError {
+        let mapped = RenamrServiceError.fromNSError(error)
+        if mapped == .pythonRaised {
+            return .serviceCrashed
+        }
+        return mapped
+    }
+}
+
+private final class TimedResolutionBox<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolved = false
+    private let continuation: CheckedContinuation<T, Error>
+
+    init(continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resolve(_ result: Result<T, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !resolved else { return }
+        resolved = true
+        switch result {
+        case let .success(value):
+            continuation.resume(returning: value)
+        case let .failure(error):
+            continuation.resume(throwing: error)
+        }
     }
 }

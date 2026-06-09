@@ -59,6 +59,8 @@ if [[ -z "${BUNDLE_PATH}" || ! -d "${BUNDLE_PATH}" ]]; then
   exit 1
 fi
 
+"${SCRIPT_DIR}/prepare_python_runtime.sh" --bundle "${BUNDLE_PATH}" --repo-root "${ROOT_DIR}/.."
+
 "${SCRIPT_DIR}/sign_bundle.sh" --bundle "${BUNDLE_PATH}" --identity "${IDENTITY}"
 "${SCRIPT_DIR}/notarize.sh" --bundle "${BUNDLE_PATH}" --keychain-profile "${NOTARY_PROFILE}"
 

@@ -63,6 +63,9 @@ sign_glob "${service_resources}" "*.dylib" "${identity}"
 
 if [[ -n "${python_framework}" ]]; then
   echo "Signing Python.framework binaries"
+  if [[ -f "${python_framework}/Versions/Current/bin/python3" ]]; then
+    sign_one "${python_framework}/Versions/Current/bin/python3" "${identity}"
+  fi
   if [[ -f "${python_framework}/Versions/Current/Python" ]]; then
     sign_one "${python_framework}/Versions/Current/Python" "${identity}"
   fi

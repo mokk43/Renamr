@@ -507,6 +507,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U6. Xcode project scaffold (Renamr.app + RenamrPythonService.xpc)
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** Create the empty Xcode project with both targets, entitlements files, `Info.plist` skeletons, and the SwiftPM package dependencies (`Sparkle`, `AsyncXPCConnection`). No business logic yet; this unit verifies the bundle structure builds and signs locally.
 
 **Requirements:** Q1, Q2, KTD2, KTD3, KTD9.
@@ -548,6 +550,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U7. Vendor + sign script for Python + wheels
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** Reproducible script that downloads BeeWare's `python-apple-support` release, fetches the required wheels (`lxml`, `httpx`, `openai`, `ebooklib`, `beautifulsoup4`, `charset-normalizer`), prunes unnecessary files, and prepares the directory tree the XPC service will embed. Signing happens later in U19 — this unit only produces the unsigned vendor tree.
 
 **Requirements:** KTD1, KTD10, KTD12 (bundle-size discipline).
@@ -584,6 +588,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U8. RenamrPythonService Swift main + Python initialization
+
+**Status:** In Progress (2026-06-09, bundled runtime discovery + `prepare_python_runtime.sh` wiring implemented, direct `Py_Initialize` embedding still pending)
 
 **Goal:** The Swift side of the XPC service loads `Python.xcframework`, calls `Py_Initialize` with `PYTHONHOME` pointing at the embedded stdlib, augments `sys.path` to include `app_packages/` and `txt_process/`, and stands up the serial dispatch queue all Python calls run on. After this unit, the service can `import txt_process.core.api` without crashing.
 
@@ -624,6 +630,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U9. Define `RenamrServiceProtocol` and `RenamrProgressProtocol` (XPC bridge protocols)
+
+**Status:** Completed (2026-06-09)
 
 **Goal:** Define the `@objc` protocols both Swift sides (client and service host) and the Python adapter implement. Settle on JSON-encoded `Data` envelopes for rich payloads.
 
@@ -680,6 +688,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U10. Python-side XPC adapter (`txt_process/macos_bridge/service.py`)
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** Python module the Swift XPC host calls into. Dispatches incoming XPC calls (passed by name + JSON payload) to `core.api`. Manages per-token cancellation events. Translates Python exceptions into `RenamrServiceError`-mappable error codes.
 
 **Requirements:** KTD2, KTD4, KTD6, I6.
@@ -721,6 +731,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U11. Swift `RenamrService` client actor (NSXPCConnection + AsyncXPCConnection)
+
+**Status:** In Progress (2026-06-09, timeout and connection-reset hardening implemented for service calls, remaining end-to-end crash-recovery verification pending)
 
 **Goal:** The SwiftUI side of the bridge. An `actor` that holds the `NSXPCConnection`, wraps each XPC method as an `async throws` Swift method, exposes an `AsyncStream<ProgressEvent>` for extraction, and handles cancellation, per-call timeouts, interruption, and auto-reconnection.
 
@@ -766,6 +778,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U12. Main window + file open + status panels
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** SwiftUI main window with file picker, action buttons (Extract / Import Names / Replace / Settings / Normalize Layout), progress indicator, and a collapsible log panel. Wires file-open to `RenamrService.loadDocument`.
 
 **Requirements:** Origin "Main window must provide" section: file selection, file metadata, the four buttons, progress indicator, log panel.
@@ -805,6 +819,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U13. Name editor table (2-col editable, autocomplete, helpers)
+
+**Status:** Completed (2026-06-09)
 
 **Goal:** The 2-column editable name table with column A read-only (original) and column B editable (replacement), drop-zero-count filter, autocomplete from the replacement-name cache, and the helpers (filter "edited only", search, reset row / reset all).
 
@@ -851,6 +867,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U14. Settings sheet (LLM config + prompt template + remember-API-key)
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** SwiftUI sheet (`.sheet` presentation) backed by `ConfigDTO`, persists via `service.writeSettings`. Every field in the existing `core.config.Config` schema is reachable.
 
 **Requirements:** R9, I6.
@@ -887,6 +905,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U15. Extract + Replace/Export flow integration
+
+**Status:** Completed (2026-06-09)
 
 **Goal:** Wire the Extract and Replace action buttons to `RenamrService.extractNames` (streaming) and `RenamrService.replaceAndExport` respectively. Handles progress display, cancellation UI, error surfacing, output-naming, and the alternate-directory prompt on permission failure.
 
@@ -945,6 +965,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U16. CSV import + Normalize Layout + EPUB-specific UX
 
+**Status:** Completed (2026-06-09)
+
 **Goal:** Three secondary surfaces grouped into one unit because each is small: CSV name-pair import (R8), Normalize Layout txt-only action (R10), EPUB-specific UX (R2 — encrypted-file alert, conditional Normalize Layout hiding).
 
 **Requirements:** R2, R8, R10.
@@ -995,6 +1017,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U17. Codesign + entitlements pipeline
 
+**Status:** In Progress (2026-06-09, runtime-preparation + signing scripts implemented, credentialed signing verification pending)
+
 **Goal:** Reproducible script that codesigns the full bundle innermost-first per KTD10, including the Sparkle nested helpers with preserved entitlements. Run after every `xcodebuild archive`.
 
 **Requirements:** KTD9, KTD10, Q1, Q2.
@@ -1039,6 +1063,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U18. Notarize + staple + .dmg packaging pipeline
 
+**Status:** In Progress (2026-06-09, release scripts implemented, notarization run pending credentials)
+
 **Goal:** Submit the signed `.app` to Apple's notary service, await success, staple the ticket, package into a `.dmg`. Single command from a clean checkout produces a distributable `.dmg`.
 
 **Requirements:** KTD8 indirectly (Sparkle needs notarized updates), origin Success Criterion "Codesigning + notarization + `.dmg` packaging runs as a single scripted command."
@@ -1076,6 +1102,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 ---
 
 ### U19. Sparkle 2.x integration (EdDSA, appcast, full updates)
+
+**Status:** In Progress (2026-06-09, Sparkle wiring implemented, end-to-end appcast update validation pending)
 
 **Goal:** Embed Sparkle 2.7.x; generate EdDSA keys; add `SUFeedURL` + `SUPublicEDKey` to `Info.plist`; set up the `Check for Updates…` menu item; produce a signed `appcast.xml` from the build pipeline.
 

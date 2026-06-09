@@ -19,6 +19,9 @@ BLUEPRINT - macOS SwiftUI shell + XPC scaffold (U6 onward):
 - 2026-06-09: Implemented Swift package scaffold for Renamr app + XPC service, shared DTO/protocol/error contracts, SwiftUI view models/views, and release scripts.
 - 2026-06-09: Implemented Python bridge dispatcher and tests (`tests/test_macos_bridge.py`), then validated with scoped lint/format checks and full pytest.
 - 2026-06-09: Validated Swift side with `swift build` and `swift test` under `macos/`.
+- 2026-06-09: Updated plan unit statuses, U6/U7/U9/U10/U12-U16 marked completed, U8/U11/U17-U19 remain in progress pending remaining integration and release verification.
+- 2026-06-09: Wired Python runtime discovery for bundled vendored runtime paths, added `prepare_python_runtime.sh`, and hardened Swift XPC client timeout/error handling with reconnect reset behavior.
+- 2026-06-09: Revalidated post-hardening changes (`swift build`, `swift test`, `pytest -q`, and script syntax checks) and refreshed U8/U11/U17 status notes in the plan doc.
 - Started Ollama protocol enhancement blueprint
 - Scaffold created: pyproject.toml, README, package structure
 - Core modules: io.py, chunking.py, llm_client.py, name_extract.py, replace.py, config.py
