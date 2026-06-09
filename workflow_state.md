@@ -1,21 +1,24 @@
 # Workflow State
 
 ## Status
-`NEEDS_PLAN_APPROVAL`
+`IN_PROGRESS`
 
 ## Plan
-BLUEPRINT - Shared extraction facade and thin UI adapters:
-- Add `txt_process/core/api.py` as the public entry point for UI consumers.
-  - Re-export shared extraction/data types and provide wrappers for document load, settings persistence, cache, normalize, and replace/export.
-- Add `txt_process/core/extraction.py` and move extraction orchestration out of Qt workers.
-  - Keep serial/phased flow, cadence waits, corrective retry, rate-limit wait parsing, and callback-driven progress.
-- Centralize API-key persistence policy in `txt_process/core/config.py`.
-  - Persist blank key when `remember_api_key` is false, and defensively blank on load.
-- Refactor `txt_process/ui/workers.py` and settings save path to thin adapters over `core.api`.
-- Add/adjust tests (`test_api.py`, `test_extraction.py`, `test_config.py`, scenario round-trip) to lock behavior.
+BLUEPRINT - macOS SwiftUI shell + XPC scaffold (U6 onward):
+- Scaffold `macos/` project layout for `Renamr` app + `RenamrPythonService` service.
+  - Add Swift sources for protocol DTOs, service actor, progress receiver, and initial SwiftUI app/viewmodel/views.
+- Add vendoring and release scripts under `macos/Scripts/` (`vendor_python.sh`, signing/notarize/dmg/appcast wrappers).
+- Add Python bridge package `txt_process/macos_bridge/`:
+  - Request dispatcher, progress callback adapter, cancellation token registry, and error mapping.
+- Add Python tests for the bridge (`tests/test_macos_bridge.py`) and keep full pytest green.
+- Keep plan-unit progression explicit in code and validate changed Python code with ruff + black + pytest.
 
 ## Log
 - 2026-06-09: Started ce-work execution for plan `2026-06-08-001-feat-macos-swiftui-shell-plan.md` (U1-U4 tranche).
+- 2026-06-09: Continuing ce-work execution from U6 onward (macOS scaffold + bridge + packaging scripts).
+- 2026-06-09: Implemented Swift package scaffold for Renamr app + XPC service, shared DTO/protocol/error contracts, SwiftUI view models/views, and release scripts.
+- 2026-06-09: Implemented Python bridge dispatcher and tests (`tests/test_macos_bridge.py`), then validated with scoped lint/format checks and full pytest.
+- 2026-06-09: Validated Swift side with `swift build` and `swift test` under `macos/`.
 - Started Ollama protocol enhancement blueprint
 - Scaffold created: pyproject.toml, README, package structure
 - Core modules: io.py, chunking.py, llm_client.py, name_extract.py, replace.py, config.py

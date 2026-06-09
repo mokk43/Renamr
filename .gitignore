@@ -72,3 +72,11 @@ venv.bak/
 # Project specific
 *.log
 config.json
+
+# macOS Swift shell
+macos/build/
+macos/DerivedData/
+macos/Vendored/*
+!macos/Vendored/.gitkeep
+macos/.build/
+macos/Scripts/sparkle_keys/*.pem

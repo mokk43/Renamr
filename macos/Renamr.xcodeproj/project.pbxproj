@@ -1,0 +1,2 @@
+// Renamr macOS project scaffold
+// Open macos/Package.swift in Xcode to generate and manage the project.
