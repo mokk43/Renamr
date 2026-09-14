@@ -32,7 +32,7 @@ rm -rf \
 mkdir -p "${VENDORED_DIR}/app_packages"
 
 echo "Resolving python-apple-support release ${PYTHON_APPLE_SUPPORT}..."
-release_json="$(curl -fsSL "https://api.github.com/repos/beeware/Python-Apple-support/releases/tags/${PYTHON_APPLE_SUPPORT}")"
+release_json="$(curl --http1.1 --retry 5 --retry-delay 2 --retry-all-errors -fsSL "https://api.github.com/repos/beeware/Python-Apple-support/releases/tags/${PYTHON_APPLE_SUPPORT}")"
 
 asset_url="$(python3 - <<'PY' "${release_json}"
 import json
@@ -55,11 +55,20 @@ if [[ -z "${asset_url}" ]]; then
 fi
 
 echo "Downloading ${asset_url}"
-curl -fL "${asset_url}" -o "${TMP_DIR}/python-apple-support.tar.gz"
+curl --http1.1 --retry 5 --retry-delay 3 --retry-all-errors -fL "${asset_url}" -o "${TMP_DIR}/python-apple-support.tar.gz"
 tar -xzf "${TMP_DIR}/python-apple-support.tar.gz" -C "${TMP_DIR}"
 
-xcframework_path="$(find "${TMP_DIR}" -type d -name "Python.xcframework" | head -n 1)"
-stdlib_path="$(find "${TMP_DIR}" -type d -name "python-stdlib" | head -n 1)"
+xcframework_path="$(find "${TMP_DIR}" -type d -name "Python.xcframework" -print -quit)"
+stdlib_path="$(find "${TMP_DIR}" -type d -name "python-stdlib" -print -quit)"
+
+if [[ -z "${stdlib_path}" ]]; then
+  framework_version_path="$(find "${TMP_DIR}" -type d -path "*/Python.framework/Versions/[0-9]*" -print -quit)"
+  if [[ -n "${framework_version_path}" && -d "${framework_version_path}/lib" ]]; then
+    stdlib_path="${TMP_DIR}/python-stdlib"
+    mkdir -p "${stdlib_path}"
+    cp -R "${framework_version_path}/lib" "${stdlib_path}/lib"
+  fi
+fi
 
 if [[ -z "${xcframework_path}" || -z "${stdlib_path}" ]]; then
   echo "Downloaded archive did not contain Python.xcframework/python-stdlib" >&2
@@ -81,7 +90,8 @@ python3 -m pip install \
   "openai" \
   "ebooklib" \
   "beautifulsoup4" \
-  "charset-normalizer"
+  "charset-normalizer" \
+  "platformdirs"
 
 echo "Pruning vendor tree"
 find "${VENDORED_DIR}" -type d \( -name tests -o -name test -o -name __pycache__ \) -prune -exec rm -rf {} +

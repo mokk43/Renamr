@@ -31,11 +31,26 @@ if [[ -z "${app_bundle}" || -z "${output_dmg}" ]]; then
   exit 1
 fi
 
-create-dmg \
-  --volname "${volume_name}" \
-  --window-size 500 320 \
-  --icon-size 100 \
-  --icon "Renamr.app" 120 140 \
-  --app-drop-link 380 140 \
-  "${output_dmg}" \
-  "${app_bundle}"
+mkdir -p "$(dirname "${output_dmg}")"
+
+if command -v create-dmg >/dev/null 2>&1; then
+  create-dmg \
+    --volname "${volume_name}" \
+    --window-size 500 320 \
+    --icon-size 100 \
+    --icon "Renamr.app" 120 140 \
+    --app-drop-link 380 140 \
+    "${output_dmg}" \
+    "${app_bundle}"
+else
+  echo "create-dmg not found, using hdiutil fallback layout."
+  tmp_stage="$(mktemp -d)"
+  trap 'rm -rf "${tmp_stage}"' EXIT
+  cp -R "${app_bundle}" "${tmp_stage}/"
+  hdiutil create \
+    -volname "${volume_name}" \
+    -srcfolder "${tmp_stage}" \
+    -ov \
+    -format UDZO \
+    "${output_dmg}"
+fi

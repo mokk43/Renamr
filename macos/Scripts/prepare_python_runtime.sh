@@ -56,7 +56,7 @@ done
 
 framework_src="${python_xcframework}/macos-arm64_x86_64/Python.framework"
 if [[ ! -d "${framework_src}" ]]; then
-  framework_src="$(find "${python_xcframework}" -type d -name "Python.framework" | head -n 1)"
+  framework_src="$(find "${python_xcframework}" -type d -name "Python.framework" -print -quit)"
 fi
 if [[ -z "${framework_src}" || ! -d "${framework_src}" ]]; then
   echo "Could not locate Python.framework inside ${python_xcframework}" >&2
@@ -79,14 +79,63 @@ cp -R "${packages_src}" "${runtime_root}/app_packages"
 cp -R "${txt_process_src}" "${runtime_root}/txt_process"
 mkdir -p "${runtime_root}/bin"
 
-framework_python="${service_frameworks}/Python.framework/Versions/Current/bin/python3"
-if [[ ! -x "${framework_python}" ]]; then
-  echo "No executable Python launcher found at ${framework_python}." >&2
-  echo "Implement embedded Python initialization or vendor a real launcher before packaging." >&2
+runtime_launcher="${runtime_root}/bin/python3"
+framework_launcher="${service_frameworks}/Python.framework/Versions/Current/bin/python3"
+framework_python_binary="${service_frameworks}/Python.framework/Versions/Current/Python"
+
+is_shared_library() {
+  local candidate="$1"
+  file "${candidate}" 2>/dev/null | grep -qi "shared library"
+}
+
+build_launcher_from_framework() {
+  local launcher_out="$1"
+  local headers_dir="${service_frameworks}/Python.framework/Versions/Current/Headers"
+  local source_file
+  if [[ ! -d "${headers_dir}" ]]; then
+    return 1
+  fi
+  if ! command -v clang >/dev/null 2>&1; then
+    return 1
+  fi
+  source_file="$(mktemp "${TMPDIR:-/tmp}/renamr-python-launcher.XXXXXX.c")"
+  cat > "${source_file}" <<'EOF'
+#include <Python.h>
+int main(int argc, char *argv[]) {
+    return Py_BytesMain(argc, argv);
+}
+EOF
+  if ! clang \
+    "${source_file}" \
+    -I"${headers_dir}" \
+    -F"${service_frameworks}" \
+    -framework Python \
+    -Wl,-rpath,@executable_path/../../../Frameworks \
+    -o "${launcher_out}"
+  then
+    rm -f "${source_file}"
+    return 1
+  fi
+  rm -f "${source_file}"
+  chmod +x "${launcher_out}"
+}
+
+rm -f "${runtime_launcher}"
+if [[ -x "${framework_launcher}" ]]; then
+  ln -sfn "../../../Frameworks/Python.framework/Versions/Current/bin/python3" "${runtime_launcher}"
+elif [[ -x "${framework_python_binary}" ]]; then
+  if is_shared_library "${framework_python_binary}"; then
+    if ! build_launcher_from_framework "${runtime_launcher}"; then
+      echo "Failed to build Python launcher from Python.framework." >&2
+      exit 1
+    fi
+  else
+    ln -sfn "../../../Frameworks/Python.framework/Versions/Current/Python" "${runtime_launcher}"
+  fi
+else
+  echo "No executable Python launcher found in ${service_frameworks}/Python.framework." >&2
   exit 1
 fi
-
-ln -sfn "../../../Frameworks/Python.framework/Versions/Current/bin/python3" "${runtime_root}/bin/python3"
 
 echo "Prepared embedded Python runtime:"
 echo "  framework: ${service_frameworks}/Python.framework"

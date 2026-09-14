@@ -22,6 +22,11 @@ BLUEPRINT - macOS SwiftUI shell + XPC scaffold (U6 onward):
 - 2026-06-09: Updated plan unit statuses, U6/U7/U9/U10/U12-U16 marked completed, U8/U11/U17-U19 remain in progress pending remaining integration and release verification.
 - 2026-06-09: Wired Python runtime discovery for bundled vendored runtime paths, added `prepare_python_runtime.sh`, and hardened Swift XPC client timeout/error handling with reconnect reset behavior.
 - 2026-06-09: Revalidated post-hardening changes (`swift build`, `swift test`, `pytest -q`, and script syntax checks) and refreshed U8/U11/U17 status notes in the plan doc.
+- 2026-06-09: Added `assemble_app_bundle.sh` and rewired `release.sh` to assemble `Renamr.app` from SwiftPM release outputs when no bundle is provided.
+- 2026-06-09: Hardened vendoring/runtime scripts (curl retries + HTTP/1.1, archive-layout fallback for stdlib extraction, `find -print -quit`, Python launcher fallback to `Versions/Current/Python`) and updated runtime prep tests.
+- 2026-06-09: Release pipeline now reaches codesign stage with prepared embedded runtime, but signing is blocked because no valid local codesigning identities are present in keychain (`security find-identity -v -p codesigning` returns zero).
+- 2026-06-09: Added ad-hoc signing compatibility (`identity "-"`) and Sparkle nested-bundle signing improvements for local validation without Developer ID credentials.
+- 2026-06-09: Added `build_dmg.sh` fallback to `hdiutil` when `create-dmg` is unavailable; produced `/dist/Renamr-local.dmg` successfully (about 60 MB).
 - Started Ollama protocol enhancement blueprint
 - Scaffold created: pyproject.toml, README, package structure
 - Core modules: io.py, chunking.py, llm_client.py, name_extract.py, replace.py, config.py

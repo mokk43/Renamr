@@ -285,9 +285,10 @@ macos/
     app_packages/                       pip-installed wheels
   Scripts/
     vendor_python.sh                    download python-apple-support + pip install wheels + prune
+    assemble_app_bundle.sh              swift build + copy binaries/resources into .app structure
     sign_bundle.sh                      innermost-first codesign walk
     notarize.sh                         notarytool submit + staple
-    build_dmg.sh                        create-dmg invocation
+    build_dmg.sh                        create-dmg invocation (hdiutil fallback when create-dmg absent)
     generate_appcast.sh                 Sparkle generate_appcast wrapper
   Tests/                                Swift unit tests (optional, scenario-light)
 
@@ -552,7 +553,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 **Status:** Completed (2026-06-09)
 
-**Goal:** Reproducible script that downloads BeeWare's `python-apple-support` release, fetches the required wheels (`lxml`, `httpx`, `openai`, `ebooklib`, `beautifulsoup4`, `charset-normalizer`), prunes unnecessary files, and prepares the directory tree the XPC service will embed. Signing happens later in U19 — this unit only produces the unsigned vendor tree.
+**Goal:** Reproducible script that downloads BeeWare's `python-apple-support` release, fetches the required wheels (`lxml`, `httpx`, `openai`, `ebooklib`, `beautifulsoup4`, `charset-normalizer`, `platformdirs`), prunes unnecessary files, and prepares the directory tree the XPC service will embed. Signing happens later in U19 — this unit only produces the unsigned vendor tree.
 
 **Requirements:** KTD1, KTD10, KTD12 (bundle-size discipline).
 
@@ -566,8 +567,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 **Approach:**
 - The script:
-  1. Downloads the latest Python 3.13 `python-apple-support` macOS release tarball from the GitHub Releases API; extracts `Python.xcframework/` and `python-stdlib/` into `macos/Vendored/`.
-  2. Runs `pip install --target macos/Vendored/app_packages --only-binary=:all: --platform macosx_11_0_universal2 --python-version 3.13 lxml httpx openai ebooklib beautifulsoup4 charset-normalizer` using a build host's pip 23+ (note: the build host's Python doesn't need to be 3.13 because `--python-version` + `--platform` + `--only-binary=:all:` makes pip resolve target-compatible wheels).
+  1. Downloads the latest Python 3.13 `python-apple-support` macOS release tarball from the GitHub Releases API using `curl --http1.1 --retry 5 --retry-delay 2 --retry-all-errors` for resilience on flaky CI networks; extracts `Python.xcframework/` and `python-stdlib/` into `macos/Vendored/`. Stdlib path discovery uses `find -print -quit` (more efficient than `find | head -n 1`). If the tarball does not contain a top-level `python-stdlib/` directory, the script falls back to locating `Python.framework/Versions/<N>/lib/` inside the xcframework and copies it into a synthetic `python-stdlib/lib/` — handles newer `python-apple-support` layouts that bundle stdlib inside the framework.
+  2. Runs `pip install --target macos/Vendored/app_packages --only-binary=:all: --platform macosx_11_0_universal2 --python-version 3.13 lxml httpx openai ebooklib beautifulsoup4 charset-normalizer platformdirs` using a build host's pip 23+ (note: the build host's Python doesn't need to be 3.13 because `--python-version` + `--platform` + `--only-binary=:all:` makes pip resolve target-compatible wheels). `platformdirs` is required because `txt_process/core/config.py` calls `platformdirs.user_config_dir()`.
   3. Prunes: removes `tests/` and `test/` directories inside any vendored package; removes `__pycache__/` recursively; removes `*.dist-info/RECORD` files (kept: `METADATA`, `WHEEL`); removes `tkinter`, `idlelib`, `ensurepip`, `pydoc_data` from `python-stdlib/` (already partially stripped by BeeWare, defensive).
   4. Walks `macos/Vendored/` and prints a sizing report (total bytes, by directory) for KTD12 measurement.
 - Script is idempotent: re-running it overwrites the tree.
@@ -583,6 +584,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 **Verification:**
 - After running the script: `find macos/Vendored/app_packages -name "*.so"` shows at least the lxml `.so` files (proving wheels-not-sources were pulled).
+- `find macos/Vendored/app_packages -name "platformdirs" -type d` is non-empty (confirms `platformdirs` wheel was installed).
 - The sizing report logs total bytes for KTD12 tracking.
 
 ---
@@ -614,13 +616,21 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
   - Stands up `NSXPCListener.service()` with a delegate that accepts new connections and configures their exported interface (the protocol definition lives in U9; this unit leaves a placeholder).
   - Calls `service.resume()` and `listener.resume()`.
 - Logging: use `os.Logger(subsystem: "dev.renamr.app", category: "PythonService")`. **Never log Python stdout containing API keys or model responses** (I6) — only log structural events ("Python initialized", "connection accepted", "request received: <method-name>", "request completed").
+- `prepare_python_runtime.sh` (a build-phase helper script invoked before signing) creates a `python/` runtime subdirectory under the XPC service's `Contents/Resources/`. It produces `python/bin/python3` using a three-way priority fallback:
+  1. If `Python.framework/Versions/Current/bin/python3` is an executable binary → create a relative symlink pointing to it.
+  2. If `Python.framework/Versions/Current/Python` is an executable (non-shared-library) Mach-O → create a relative symlink pointing to it.
+  3. If `Python.framework/Versions/Current/Python` is a shared library (reported by `file` as "shared library") → compile a minimal C launcher (`Py_BytesMain`) against the framework headers using `clang`, linking with `-framework Python -Wl,-rpath,@executable_path/../../../Frameworks`. Headers directory must exist (`Python.framework/Versions/Current/Headers`); if absent or `clang` unavailable, the script fails loudly.
+  - Framework discovery uses `find -print -quit` instead of `find | head -n 1` for efficiency.
 
 **Patterns to follow:**
 - Apple's `PyConfig`-based embedding pattern (the `Py_SetPythonHome`-based older path is deprecated as of 3.11; use `PyConfig`).
 - Single-threaded GIL discipline per research finding §3 (serial DispatchQueue, never call into Python from multiple Swift threads).
 
 **Test scenarios:**
-- Test expectation: none for the Swift side at unit level — verified via U10/U11 end-to-end scenarios. Add one smoke test at the XCTest level if the cost is low: launch the service, send a trivial `ping()` XPC call that returns the `sys.version` string from Python; assert it starts with `3.13`.
+- XCTest `PreparePythonRuntimeScriptTests`:
+  - `testRejectsSharedLibraryRuntimeWhenLauncherBuildInputsAreMissing`: shared-library-style `Python` Mach-O present but no `Headers/` dir and no `clang` available → script exits non-zero with "Failed to build Python launcher from Python.framework." on stderr.
+  - `testFallsBackToFrameworkPythonBinaryWhenPython3LauncherIsMissing`: executable `Python` binary present, no `bin/python3` → script exits 0 and `python/bin/python3` symlink resolves to `../../../Frameworks/Python.framework/Versions/Current/Python`.
+  - `testCreatesLauncherSymlinkWhenFrameworkProvidesPython3`: `bin/python3` executable present → script exits 0 and `python/bin/python3` symlink resolves to the `bin/python3` path.
 - Manual verification: `Renamr.app/Contents/XPCServices/RenamrPythonService.xpc/Contents/MacOS/RenamrPythonService` runs standalone; Console.app shows the Python initialization log line.
 
 **Verification:**
@@ -752,6 +762,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
   - `func getConnection() -> NSXPCConnection` — recreates on `nil`, sets `remoteObjectInterface`, `interruptionHandler` (logs + clears `connection`), `invalidationHandler` (logs + clears).
   - `func loadDocument(at: URL) async throws -> LoadResultDTO`, `func extractNames(documentPath: String, config: ConfigDTO) -> AsyncThrowingStream<ProgressEvent, Error>` (returns stream + final result via the stream's last event), `func replaceAndExport(...)`, etc.
   - Each non-streaming method: bridge the reply block to `withCheckedThrowingContinuation` using `AsyncXPCConnection`'s helpers. Apply per-call timeout via `withThrowingTaskGroup` racing the call against `Task.sleep(forSeconds: timeout)`; on timeout, send a `cancel` XPC message and throw `RenamrServiceError.timedOut`.
+  - Error mapping uses two distinct helpers: `mapConnectionError(_:)` (fires when the XPC connection itself fails; maps `pythonRaised` → `serviceCrashed` since we can't trust the reply payload) and `mapReplyError(_:)` (fires on a delivered reply that carries an error; preserves `pythonRaised` with the original `localizedDescription` so Python-side error messages reach the UI intact). Both helpers pass through errors that already carry `RenamrServiceError.domain` without double-wrapping.
   - `extractNames`: returns an `AsyncThrowingStream`. Inside: generate a UUID token, create a `ProgressReceiver` with the stream's continuation, set it as the connection's `exportedObject`, send `extractNames(payload, token)`. On `continuation.onTermination` (Task cancellation): send `cancel(token)` XPC message. On `interruptionHandler` during the call: `continuation.finish(throwing: .serviceCrashed)`.
 - `ProgressReceiver`: `@objc class` (because `NSXPCConnection` needs `@objc`) implementing `RenamrProgressProtocol`. `func progress(payload: Data)` decodes the payload and calls `continuation.yield(event)`.
 - `ConnectionSupervisor`: holds the `NSXPCConnection`, exposes `var isAlive: Bool` (last heartbeat timestamp recent), `func invalidate()`, `func reset()`. Heartbeat: optional in v1 — start without it, add only if "stuck service" surfaces as a real user problem.
@@ -939,7 +950,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 - Replace flow: on "Replace" button tap, `DocumentViewModel.replaceAndExport()`:
   - Computes `mappings = nameEditor.editedMappings()`.
   - Computes default output path via `core.api`-equivalent rule (`_processed` suffix) — but since the Python side has the canonical implementation in `core.replace.build_output_path`, do not re-implement in Swift; let the Python side decide by passing `outputPath: nil` and reading the response.
-  - Calls `service.replaceAndExport(...)`. On success: appends a log line with the total counts. On `RenamrServiceError.permissionDenied`: presents `AlternateDirectoryPicker`, on user selection calls the service again with the new path.
+  - Calls `service.replaceAndExport(...)`. On success: appends a log line with the total counts. On permission failure: detects via a single `catch` block that casts the error to `NSError` and calls `RenamrServiceError.fromNSError(_:) == .permissionDenied` (avoids pattern-matching on the concrete `RenamrServiceError` type so that errors already wrapped as domain-carrying `NSError` by `mapReplyError` are handled correctly); presents `AlternateDirectoryPicker`, on user selection calls the service again with the new path.
   - On success, refreshes the name cache via `service.saveNameCache(currentNonEmptyReplacements)` and refreshes `NameAutocompleteSource`.
 - Error handling: `RenamrServiceError.cancelled` → silent (the user did it); `RenamrServiceError.documentEncrypted` → alert with the standard EPUB-DRM message; `RenamrServiceError.llmConfigInvalid` → alert with "Open Settings" button; `RenamrServiceError.serviceCrashed` → alert with "The extraction service stopped unexpectedly. Retry?" button; all others → generic error alert with the localized message.
 
@@ -1017,7 +1028,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U17. Codesign + entitlements pipeline
 
-**Status:** In Progress (2026-06-09, runtime-preparation + signing scripts implemented, credentialed signing verification pending)
+**Status:** In Progress (2026-06-09, ad-hoc signing path validated end-to-end, Developer ID signing remains blocked by missing local keychain identity)
 
 **Goal:** Reproducible script that codesigns the full bundle innermost-first per KTD10, including the Sparkle nested helpers with preserved entitlements. Run after every `xcodebuild archive`.
 
@@ -1031,7 +1042,9 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 - `macos/Scripts/extract_entitlements.sh` (new — extracts entitlements from a binary for preservation)
 
 **Approach:**
-- Script takes `--bundle <path>` and `--identity "<Developer ID Application: Name (TEAMID)>"` arguments.
+- Script takes `--bundle <path>` and `--identity "<Developer ID Application: Name (TEAMID)>"` arguments. Passing `"-"` for identity selects ad-hoc signing (local dev workflow without Developer ID credentials).
+- `_sign_helpers.sh` `sign_one()`: conditionally adds `--timestamp --options runtime` only when identity is not `"-"` (ad-hoc mode does not require timestamp authority network access).
+- Ad-hoc mode (`identity == "-"`) disables sandbox entitlements on the XPC service and on the outer app — they are only applied when signing with a real Developer ID. The `use_sandbox_entitlements` flag controls this.
 - Walks the bundle innermost-first:
   1. `find $BUNDLE/Contents/XPCServices/RenamrPythonService.xpc/Contents/Resources/python-stdlib -name '*.so'` → sign each.
   2. Same for `.../Resources/app_packages -name '*.so'`.
@@ -1039,13 +1052,15 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
   4. Sign `Python.framework/Versions/3.13/Python` Mach-O.
   5. Sign `Python.framework` versioned bundle root.
   6. Sign `Python.xcframework/macos-arm64_x86_64/` slice.
-  7. Sign `RenamrPythonService.xpc` with the XPC-service entitlements (`com.apple.security.cs.allow-unsigned-executable-memory`, `com.apple.security.cs.disable-library-validation`).
-  8. For each helper inside `Sparkle.framework`: extract its current entitlements (`codesign -d --entitlements - <helper>`) to a tempfile, sign with that same file.
-  9. Sign `Sparkle.framework` versioned bundle.
-  10. Sign `Renamr.app` with the outer-app entitlements (minimal).
-- Each `codesign` call uses `--options runtime --timestamp --sign "$IDENTITY"`. Never `--deep`.
-- After signing: run `codesign --verify --strict --deep --verbose=2 $BUNDLE` to confirm; run `spctl --assess --type execute --verbose=4 $BUNDLE` to confirm Gatekeeper accept (will be rejected pre-notarization but should not have signature errors).
-- Logs every signed Mach-O path so failures are easy to debug.
+  7. Sign `python/bin/python3` inside the XPC service's Resources (the compiled launcher or symlink produced by `prepare_python_runtime.sh`).
+  8. Sign `RenamrPythonService.xpc`: with sandbox entitlements when Developer ID; without when ad-hoc.
+  9. For each executable inside `Sparkle.framework/Versions/`: in ad-hoc mode sign directly; in Developer ID mode extract entitlements with `codesign -d --entitlements :- <helper>` (note the `:` prefix for the correct binary plist extraction format) into a tempfile, sign with that same file, remove tempfile. Then sign nested bundles (`Updater.app`, `*.xpc` sub-bundles) as complete bundles.
+  10. Sign `Sparkle.framework` versioned bundle.
+  11. Sign `Renamr.app`: with outer-app entitlements when Developer ID; without when ad-hoc.
+- Each `codesign` call uses `--force --sign "$IDENTITY"` (plus `--timestamp --options runtime` for non-ad-hoc). Never `--deep`.
+- Verification: for ad-hoc, runs `codesign --verify --strict --verbose=2 $BUNDLE` (without `--deep` to avoid false positives from nested ad-hoc bundles); for Developer ID, runs `codesign --verify --strict --deep --verbose=2 $BUNDLE` then `spctl --assess --type execute --verbose=4 $BUNDLE || true`.
+- Logs every signed path so failures are easy to debug.
+- Framework discovery uses `find -print -quit` instead of `find | head -n 1` for efficiency.
 
 **Patterns to follow:**
 - The signing order in the High-Level Technical Design "Codesigning order" diagram.
@@ -1063,7 +1078,7 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 
 ### U18. Notarize + staple + .dmg packaging pipeline
 
-**Status:** In Progress (2026-06-09, release scripts implemented, notarization run pending credentials)
+**Status:** In Progress (2026-06-09, local ad-hoc DMG pipeline succeeds with SwiftPM-assembled bundle, notarization remains blocked until Developer ID keychain setup is available)
 
 **Goal:** Submit the signed `.app` to Apple's notary service, await success, staple the ticket, package into a `.dmg`. Single command from a clean checkout produces a distributable `.dmg`.
 
@@ -1074,7 +1089,8 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
 **Files:**
 - `macos/Scripts/notarize.sh` (new)
 - `macos/Scripts/build_dmg.sh` (new)
-- `macos/Scripts/release.sh` (new — orchestrator: vendor → archive → sign → notarize → dmg)
+- `macos/Scripts/assemble_app_bundle.sh` (new — `swift build`-based bundle assembler; replaces the `xcodebuild archive` path)
+- `macos/Scripts/release.sh` (new — orchestrator: vendor → assemble → sign → notarize → dmg)
 
 **Approach:**
 - `notarize.sh`: takes `--bundle Renamr.app --keychain-profile AC_NOTARY`. Steps:
@@ -1082,8 +1098,9 @@ The per-unit `**Files:**` sections remain authoritative for what each unit creat
   2. `xcrun notarytool submit Renamr.zip --keychain-profile $PROFILE --wait`.
   3. On success: `xcrun stapler staple Renamr.app`.
   4. `xcrun stapler validate Renamr.app` → confirms.
-- `build_dmg.sh`: invokes `create-dmg` (the homebrew one already documented in `docs/PACKAGING_MACOS.md`) with the standard layout.
-- `release.sh`: calls everything in order. Produces `dist/Renamr-<version>.dmg`.
+- `assemble_app_bundle.sh`: takes `--output <Renamr.app> [--repo-root <path>] [--configuration release|debug]`. Runs `swift build -c release --product Renamr --product RenamrPythonService` under `macos/`, then copies the resulting binaries (`Renamr`, `RenamrPythonService`), `Info.plist` files, and `Sparkle.framework` into the expected `.app` bundle layout. Adds `@executable_path/../Frameworks` rpath to the app binary if it is not already present. This replaces the prior `xcodebuild -scheme Renamr -configuration Release` path that required a full Xcode project.
+- `build_dmg.sh`: creates the output directory, then invokes `create-dmg` when available (Homebrew tool with drag-install window layout). When `create-dmg` is not installed, falls back to `hdiutil create -format UDZO` from a temporary staging directory — produces a functional DMG without the styled installer window.
+- `release.sh`: skips `vendor_python.sh` when `Vendored/Python.xcframework`, `Vendored/app_packages`, and `Vendored/app_packages/platformdirs` all already exist (idempotent; avoids unnecessary network downloads on repeated runs). Then calls `assemble_app_bundle.sh`, `sign_bundle.sh`, `notarize.sh`, `build_dmg.sh` in order. Produces `dist/Renamr-<version>.dmg`.
 - One-time setup documented in `macos/README.md`: `xcrun notarytool store-credentials AC_NOTARY` with App Store Connect API key.
 
 **Patterns to follow:**

@@ -5,11 +5,16 @@ sign_one() {
   local path="$1"
   local identity="$2"
   local entitlements="${3:-}"
+  local args=(--force --sign "${identity}")
+
+  if [[ "${identity}" != "-" ]]; then
+    args+=(--timestamp --options runtime)
+  fi
 
   if [[ -n "${entitlements}" ]]; then
-    codesign --force --timestamp --options runtime --sign "${identity}" --entitlements "${entitlements}" "${path}"
+    codesign "${args[@]}" --entitlements "${entitlements}" "${path}"
   else
-    codesign --force --timestamp --options runtime --sign "${identity}" "${path}"
+    codesign "${args[@]}" "${path}"
   fi
 }
 

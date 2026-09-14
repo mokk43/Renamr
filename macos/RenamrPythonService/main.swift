@@ -136,7 +136,9 @@ final class RenamrServiceHost: NSObject, NSXPCListenerDelegate, RenamrServicePro
         progressHandler: ((String) -> Void)? = nil
     ) throws -> Data {
         guard let payloadString = String(data: payload, encoding: .utf8) else {
-            throw RenamrServiceError.pythonRaised
+            throw RenamrServiceError.pythonRaised.asNSError(
+                message: "Invalid Python bridge payload encoding."
+            )
         }
         let response = try runtime.dispatch(
             method: method,
@@ -144,14 +146,11 @@ final class RenamrServiceHost: NSObject, NSXPCListenerDelegate, RenamrServicePro
             token: token,
             progressHandler: progressHandler
         )
-        guard let envelopeData = response.data(using: .utf8) else {
-            throw RenamrServiceError.pythonRaised
-        }
-        guard
-            let envelopeObject = try JSONSerialization.jsonObject(with: envelopeData) as? [String: Any],
-            let ok = envelopeObject["ok"] as? Bool
-        else {
-            throw RenamrServiceError.pythonRaised
+        let envelopeObject = try decodeEnvelopeObject(from: response)
+        guard let ok = envelopeObject["ok"] as? Bool else {
+            throw RenamrServiceError.pythonRaised.asNSError(
+                message: "The Python bridge response is missing an `ok` field."
+            )
         }
         if ok {
             let resultObject = envelopeObject["result"] ?? NSNull()
@@ -159,9 +158,50 @@ final class RenamrServiceHost: NSObject, NSXPCListenerDelegate, RenamrServicePro
         }
 
         let code = envelopeObject["error"] as? String ?? "pythonRaised"
-        let message = envelopeObject["message"] as? String
-            ?? RenamrServiceError.fromBridgeCode(code).localizedDescription
-        throw RenamrServiceError.fromBridgeCode(code).asNSError(message: message)
+        let message = (envelopeObject["message"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedMessage = (message?.isEmpty == false)
+            ? message!
+            : RenamrServiceError.fromBridgeCode(code).localizedDescription
+        throw RenamrServiceError.fromBridgeCode(code).asNSError(message: resolvedMessage)
+    }
+
+    private func decodeEnvelopeObject(from response: String) throws -> [String: Any] {
+        if let object = jsonObject(from: response), object["ok"] as? Bool != nil {
+            return object
+        }
+
+        if let candidate = extractJSONObjectCandidate(from: response),
+           let object = jsonObject(from: candidate), object["ok"] as? Bool != nil
+        {
+            logger.warning("Recovered Python bridge response envelope from surrounding output")
+            return object
+        }
+
+        throw RenamrServiceError.pythonRaised.asNSError(
+            message: "The Python bridge returned an invalid response envelope."
+        )
+    }
+
+    private func jsonObject(from text: String) -> [String: Any]? {
+        guard
+            let data = text.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        return object
+    }
+
+    private func extractJSONObjectCandidate(from text: String) -> String? {
+        guard
+            let start = text.firstIndex(of: "{"),
+            let end = text.lastIndex(of: "}"),
+            start <= end
+        else {
+            return nil
+        }
+        return String(text[start ... end])
     }
 
     private func emitProgressEvent(_ eventJSON: String, to proxy: RenamrProgressProtocol?) {

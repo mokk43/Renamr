@@ -1,15 +1,29 @@
 import XCTest
 
 final class PreparePythonRuntimeScriptTests: XCTestCase {
-    func testRejectsFrameworkRuntimeWhenLauncherIsMissing() throws {
+    func testRejectsSharedLibraryRuntimeWhenLauncherBuildInputsAreMissing() throws {
+        let fixture = try RuntimeScriptFixture(testCase: self)
+        try fixture.createRequiredInputs()
+        try fixture.createFrameworkSharedLibraryRuntime()
+
+        let result = try runPrepareScript(fixture: fixture)
+
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("Failed to build Python launcher from Python.framework."))
+    }
+
+    func testFallsBackToFrameworkPythonBinaryWhenPython3LauncherIsMissing() throws {
         let fixture = try RuntimeScriptFixture(testCase: self)
         try fixture.createRequiredInputs()
         try fixture.createFrameworkRuntime()
 
         let result = try runPrepareScript(fixture: fixture)
 
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("No executable Python launcher found"))
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let symlink = fixture.serviceBundle
+            .appendingPathComponent("Contents/Resources/python/bin/python3")
+        let destination = try FileManager.default.destinationOfSymbolicLink(atPath: symlink.path)
+        XCTAssertEqual(destination, "../../../Frameworks/Python.framework/Versions/Current/Python")
     }
 
     func testCreatesLauncherSymlinkWhenFrameworkProvidesPython3() throws {
@@ -109,6 +123,26 @@ private final class RuntimeScriptFixture {
         let bin = frameworkCurrent.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try createExecutable(at: bin.appendingPathComponent("python3"))
+    }
+
+    func createFrameworkSharedLibraryRuntime() throws {
+        try FileManager.default.createDirectory(at: frameworkCurrent, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("dummy.c")
+        let destination = frameworkCurrent.appendingPathComponent("Python")
+        try Data("int renamr_dummy(void) { return 0; }\n".utf8).write(to: source)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
+        process.arguments = [
+            source.path,
+            "-dynamiclib",
+            "-o",
+            destination.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
     }
 
     private func createExecutable(at url: URL) throws {

@@ -73,22 +73,20 @@ final class PythonRuntime {
                 }
                 outputBuffer.append(chunk)
                 Self.consumeLines(from: &outputBuffer) { line in
-                    if line.hasPrefix(Self.progressPrefix) {
-                        let event = String(line.dropFirst(Self.progressPrefix.count))
+                    if let event = Self.extractPayload(from: line, prefix: Self.progressPrefix) {
                         progressHandler?(event)
-                    } else if line.hasPrefix(Self.resultPrefix) {
-                        resultPayload = String(line.dropFirst(Self.resultPrefix.count))
+                    } else if let result = Self.extractPayload(from: line, prefix: Self.resultPrefix) {
+                        resultPayload = result
                     }
                 }
             }
             process.waitUntilExit()
 
             if !outputBuffer.isEmpty, let tail = String(data: outputBuffer, encoding: .utf8) {
-                if tail.hasPrefix(Self.progressPrefix) {
-                    let event = String(tail.dropFirst(Self.progressPrefix.count))
+                if let event = Self.extractPayload(from: tail, prefix: Self.progressPrefix) {
                     progressHandler?(event)
-                } else if tail.hasPrefix(Self.resultPrefix) {
-                    resultPayload = String(tail.dropFirst(Self.resultPrefix.count))
+                } else if let result = Self.extractPayload(from: tail, prefix: Self.resultPrefix) {
+                    resultPayload = result
                 }
             }
 
@@ -117,6 +115,13 @@ final class PythonRuntime {
             guard let line = String(data: lineData, encoding: .utf8) else { continue }
             handler(line)
         }
+    }
+
+    private static func extractPayload(from line: String, prefix: String) -> String? {
+        guard let range = line.range(of: prefix) else {
+            return nil
+        }
+        return String(line[range.upperBound...])
     }
 
     private static let bootstrapScript = """

@@ -41,17 +41,20 @@ fi
 
 mkdir -p "${DIST_DIR}"
 
-"${SCRIPT_DIR}/vendor_python.sh"
+if [[ ! -d "${ROOT_DIR}/Vendored/Python.xcframework" \
+   || ! -d "${ROOT_DIR}/Vendored/app_packages" \
+   || ! -d "${ROOT_DIR}/Vendored/app_packages/platformdirs" ]]; then
+  "${SCRIPT_DIR}/vendor_python.sh"
+else
+  echo "Using existing vendored Python runtime under ${ROOT_DIR}/Vendored"
+fi
 
 if [[ -z "${BUNDLE_PATH}" ]]; then
-  echo "Building macOS release app bundle..."
-  xcodebuild \
-    -scheme Renamr \
-    -configuration Release \
-    -derivedDataPath "${ROOT_DIR}/build" \
-    -destination "platform=macOS" \
-    build
-  BUNDLE_PATH="$(find "${ROOT_DIR}/build" -type d -name "Renamr.app" | head -n 1)"
+  BUNDLE_PATH="${ROOT_DIR}/build/Renamr.app"
+  "${SCRIPT_DIR}/assemble_app_bundle.sh" \
+    --output "${BUNDLE_PATH}" \
+    --repo-root "${ROOT_DIR}/.." \
+    --configuration release
 fi
 
 if [[ -z "${BUNDLE_PATH}" || ! -d "${BUNDLE_PATH}" ]]; then

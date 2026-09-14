@@ -220,7 +220,7 @@ actor RenamrService {
             return try await withCheckedThrowingContinuation { continuation in
                 call(proxy) { data, error in
                     if let error {
-                        continuation.resume(throwing: RenamrServiceError.fromNSError(error))
+                        continuation.resume(throwing: Self.mapReplyError(error))
                         return
                     }
                     guard let data else {
@@ -240,7 +240,7 @@ actor RenamrService {
                     }
                     call(proxy) { data, error in
                         if let error {
-                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            resolve(.failure(Self.mapReplyError(error)))
                             return
                         }
                         guard let data else {
@@ -275,7 +275,7 @@ actor RenamrService {
                     }
                     call(proxy) { values, error in
                         if let error {
-                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            resolve(.failure(Self.mapReplyError(error)))
                             return
                         }
                         resolve(.success(values ?? []))
@@ -306,7 +306,7 @@ actor RenamrService {
                     }
                     call(proxy) { error in
                         if let error {
-                            resolve(.failure(RenamrServiceError.fromNSError(error)))
+                            resolve(.failure(Self.mapReplyError(error)))
                             return
                         }
                         resolve(.success(()))
@@ -345,10 +345,26 @@ actor RenamrService {
         }
     }
 
-    private static func mapConnectionError(_ error: NSError) -> RenamrServiceError {
+    private static func mapConnectionError(_ error: NSError) -> Error {
+        if error.domain == RenamrServiceError.domain {
+            return error
+        }
         let mapped = RenamrServiceError.fromNSError(error)
         if mapped == .pythonRaised {
-            return .serviceCrashed
+            return RenamrServiceError.serviceCrashed
+                .asNSError(message: error.localizedDescription)
+        }
+        return mapped
+    }
+
+    private static func mapReplyError(_ error: NSError) -> Error {
+        if error.domain == RenamrServiceError.domain {
+            return error
+        }
+        let mapped = RenamrServiceError.fromNSError(error)
+        if mapped == .pythonRaised {
+            return RenamrServiceError.pythonRaised
+                .asNSError(message: error.localizedDescription)
         }
         return mapped
     }

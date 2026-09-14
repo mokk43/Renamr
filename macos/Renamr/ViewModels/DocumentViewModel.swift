@@ -114,15 +114,14 @@ final class DocumentViewModel: ObservableObject {
             alternateDirectoryRequired = false
             status = .idle
             appLog.log("Replace complete: \(result.outputPath)")
-        } catch let error as RenamrServiceError {
-            if error == .permissionDenied {
+        } catch {
+            let message = error.localizedDescription
+            let nsError = error as NSError
+            if RenamrServiceError.fromNSError(nsError) == .permissionDenied {
                 alternateDirectoryRequired = true
             }
-            status = .failed(error.localizedDescription)
-            appLog.log("Replace failed: \(error.localizedDescription)", level: "error")
-        } catch {
-            status = .failed(error.localizedDescription)
-            appLog.log("Replace failed: \(error.localizedDescription)", level: "error")
+            status = .failed(message)
+            appLog.log("Replace failed: \(message)", level: "error")
         }
     }
 

@@ -55,6 +55,66 @@ public struct NamePairDTO: Codable, Sendable {
         self.original = original
         self.replacement = replacement
     }
+
+    public enum CodingKeys: String, CodingKey {
+        case original
+        case replacement
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case originalName = "original_name"
+        case replacementName = "replacement_name"
+        case name
+        case value
+    }
+
+    public init(from decoder: Decoder) throws {
+        if var unkeyed = try? decoder.unkeyedContainer() {
+            let original = try unkeyed.decode(String.self)
+            let replacement = (try? unkeyed.decode(String.self)) ?? ""
+            self.init(original: original, replacement: replacement)
+            return
+        }
+
+        if let single = try? decoder.singleValueContainer(),
+           let original = try? single.decode(String.self)
+        {
+            self.init(original: original, replacement: "")
+            return
+        }
+
+        if let keyed = try? decoder.container(keyedBy: CodingKeys.self),
+           let original = try? keyed.decode(String.self, forKey: .original)
+        {
+            let replacement = (try? keyed.decode(String.self, forKey: .replacement)) ?? ""
+            self.init(original: original, replacement: replacement)
+            return
+        }
+
+        if let keyed = try? decoder.container(keyedBy: LegacyCodingKeys.self),
+           let original = (try? keyed.decode(String.self, forKey: .originalName))
+            ?? (try? keyed.decode(String.self, forKey: .name))
+        {
+            let replacement = (try? keyed.decode(String.self, forKey: .replacementName))
+                ?? (try? keyed.decode(String.self, forKey: .value))
+                ?? ""
+            self.init(original: original, replacement: replacement)
+            return
+        }
+
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: decoder.codingPath,
+                debugDescription: "Unsupported name pair payload format."
+            )
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var keyed = encoder.container(keyedBy: CodingKeys.self)
+        try keyed.encode(original, forKey: .original)
+        try keyed.encode(replacement, forKey: .replacement)
+    }
 }
 
 public struct NameRowDTO: Codable, Sendable {
@@ -124,6 +184,105 @@ public struct ExtractionResultDTO: Codable, Sendable {
         case namePairs = "name_pairs"
         case counts
         case errors
+    }
+
+    public init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(),
+           let names = try? single.decode([String].self)
+        {
+            self.init(
+                namePairs: names.map { NamePairDTO(original: $0, replacement: "") },
+                counts: [:],
+                errors: []
+            )
+            return
+        }
+
+        let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        let namePairs = Self.decodeNamePairs(from: keyed)
+        let counts = Self.decodeCounts(from: keyed)
+        let errors = Self.decodeErrors(from: keyed)
+        self.init(namePairs: namePairs, counts: counts, errors: errors)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var keyed = encoder.container(keyedBy: CodingKeys.self)
+        try keyed.encode(namePairs, forKey: .namePairs)
+        try keyed.encode(counts, forKey: .counts)
+        try keyed.encode(errors, forKey: .errors)
+    }
+
+    private static func decodeNamePairs(
+        from keyed: KeyedDecodingContainer<CodingKeys>
+    ) -> [NamePairDTO] {
+        if let value = try? keyed.decode([NamePairDTO].self, forKey: .namePairs) {
+            return value
+        }
+
+        if let value = try? keyed.decode([[String]].self, forKey: .namePairs) {
+            return value.compactMap { item in
+                guard let original = item.first, !original.isEmpty else { return nil }
+                let replacement = item.count > 1 ? item[1] : ""
+                return NamePairDTO(original: original, replacement: replacement)
+            }
+        }
+
+        if let value = try? keyed.decode([String].self, forKey: .namePairs) {
+            return value.map { NamePairDTO(original: $0, replacement: "") }
+        }
+
+        if let value = try? keyed.decode([[String: String]].self, forKey: .namePairs) {
+            return value.compactMap { item in
+                let original = item["original"] ?? item["original_name"] ?? item["name"]
+                guard let original, !original.isEmpty else { return nil }
+                let replacement = item["replacement"] ?? item["replacement_name"] ?? item["value"] ?? ""
+                return NamePairDTO(original: original, replacement: replacement)
+            }
+        }
+
+        return []
+    }
+
+    private static func decodeCounts(
+        from keyed: KeyedDecodingContainer<CodingKeys>
+    ) -> [String: Int] {
+        if let value = try? keyed.decode([String: Int].self, forKey: .counts) {
+            return value
+        }
+
+        if let value = try? keyed.decode([String: String].self, forKey: .counts) {
+            return value.reduce(into: [String: Int]()) { partial, item in
+                if let count = Int(item.value) {
+                    partial[item.key] = count
+                }
+            }
+        }
+
+        if let value = try? keyed.decode([String: Double].self, forKey: .counts) {
+            return value.reduce(into: [String: Int]()) { partial, item in
+                partial[item.key] = Int(item.value)
+            }
+        }
+
+        return [:]
+    }
+
+    private static func decodeErrors(
+        from keyed: KeyedDecodingContainer<CodingKeys>
+    ) -> [String] {
+        if let value = try? keyed.decode([String].self, forKey: .errors) {
+            return value
+        }
+
+        if let value = try? keyed.decode(String.self, forKey: .errors) {
+            return [value]
+        }
+
+        if let value = try? keyed.decode([[String: String]].self, forKey: .errors) {
+            return value.compactMap { $0["message"] ?? $0["error"] }
+        }
+
+        return []
     }
 }
 
